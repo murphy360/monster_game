@@ -32,3 +32,6 @@ frontend/.vite/
 # OS
 .DS_Store
 Thumbs.db
+
+# Generated level configs
+data/levels/*.json
