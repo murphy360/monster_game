@@ -10,12 +10,22 @@ function getSafeDimension(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
 
+function getLoadingNarrative(theme) {
+  const normalizedTheme = (theme || 'mystery').trim() || 'mystery'
+  return [
+    `I am creating a new level for you that is ${normalizedTheme} themed.`,
+    'I am generating a fresh background scene, detecting the best window openings, and lining up monster spawn points to those exact locations.',
+    'I am also crafting matching monster sprites so pop-ins stay anchored to each window and gameplay feels consistent.',
+  ]
+}
+
 export default function App() {
   const [levelData, setLevelData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [theme, setTheme] = useState('haunted house')
   const [showDebugBounds, setShowDebugBounds] = useState(import.meta.env.VITE_DEBUG_BOUNDS === 'true')
+  const loadingNarrative = getLoadingNarrative(theme)
 
   async function handleGenerateLevel() {
     setLoading(true)
@@ -74,7 +84,16 @@ export default function App() {
         />
       ) : (
         <div className="placeholder">
-          <p>Enter a theme and click <strong>Generate Level</strong> to start.</p>
+          {loading ? (
+            <div className="loading-placeholder">
+              <p className="loading-title">Generating your level...</p>
+              {loadingNarrative.map((line) => (
+                <p key={line}>{line}</p>
+              ))}
+            </div>
+          ) : (
+            <p>Enter a theme and click <strong>Generate Level</strong> to start.</p>
+          )}
         </div>
       )}
     </div>

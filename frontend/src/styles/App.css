@@ -104,6 +104,25 @@ body {
   text-align: center;
 }
 
+.loading-placeholder {
+  max-width: 760px;
+  text-align: left;
+  color: #d6d9e8;
+  line-height: 1.5;
+  font-size: 1.02rem;
+}
+
+.loading-title {
+  color: #ffd166;
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin-bottom: 0.6rem;
+}
+
+.loading-placeholder p + p {
+  margin-top: 0.45rem;
+}
+
 /* ── Game Board ── */
 .game-board-wrapper {
   position: relative;
