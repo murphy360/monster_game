@@ -1,12 +1,17 @@
 """Concrete AIGenerator implementation backed by Google Gemini.
 
 Uses:
-- ``gemini-2.0-flash`` for text (level config generation).
-- ``gemini-2.0-flash`` with vision for bounding-box extraction.
-- ``imagen-3.0-generate-002`` for image generation (backgrounds & sprites).
+- ``gemini-2.0-flash`` (or ``GEMINI_TEXT_MODEL``) for text generation and vision.
+- ``gemini-2.5-flash-image`` (or ``GEMINI_IMAGE_MODEL``) for image generation.
+
+Two image-generation backends are supported automatically:
+- Imagen models (model name starts with ``imagen``): uses ``generate_images``.
+- Nano Banana / Gemini image models: uses ``generate_content`` with
+  ``response_modalities=["IMAGE"]``.
 
 The adapter reads ``GEMINI_API_KEY`` from the environment (or a .env file
-loaded by python-dotenv).
+loaded by python-dotenv). Model IDs can be overridden with
+``GEMINI_TEXT_MODEL`` and ``GEMINI_IMAGE_MODEL``.
 """
 
 from __future__ import annotations
@@ -34,9 +39,9 @@ class GeminiAdapter(AIGenerator):
     """AIGenerator implementation using Google Gemini models."""
 
     # Text / vision model
-    TEXT_MODEL = "gemini-2.0-flash"
-    # Image generation model
-    IMAGE_MODEL = "imagen-3.0-generate-002"
+    DEFAULT_TEXT_MODEL = "gemini-2.0-flash"
+    # Image generation model (Nano Banana by default)
+    DEFAULT_IMAGE_MODEL = "gemini-2.5-flash-image"
 
     def __init__(self) -> None:
         api_key = os.getenv("GEMINI_API_KEY")
@@ -46,6 +51,8 @@ class GeminiAdapter(AIGenerator):
                 "Create a .env file in the backend/ directory with GEMINI_API_KEY=<your key>."
             )
         self._client = genai.Client(api_key=api_key)
+        self._text_model = os.getenv("GEMINI_TEXT_MODEL", self.DEFAULT_TEXT_MODEL)
+        self._image_model = os.getenv("GEMINI_IMAGE_MODEL", self.DEFAULT_IMAGE_MODEL)
 
     # ------------------------------------------------------------------
     # Public interface
@@ -67,7 +74,7 @@ class GeminiAdapter(AIGenerator):
             "}"
         )
         response = await self._client.aio.models.generate_content(
-            model=self.TEXT_MODEL,
+            model=self._text_model,
             contents=prompt,
         )
         raw = response.text.strip()
@@ -76,25 +83,51 @@ class GeminiAdapter(AIGenerator):
         raw = re.sub(r"\n?```$", "", raw)
         return json.loads(raw)
 
-    async def generate_background(self, theme: str) -> str:
-        """Generate a background image with Imagen and return a data-URI."""
-        result = await self._client.aio.models.generate_images(
-            model=self.IMAGE_MODEL,
-            prompt=(
-                f"A detailed game background scene for a whack-a-mole monster game. "
-                f"Theme: {theme}. "
-                "The scene shows a building facade or landscape with clearly visible "
-                "rectangular windows or openings. Cartoon/illustrated style, vivid colours. "
-                "No text, no UI elements."
-            ),
-            config=genai_types.GenerateImagesConfig(
-                number_of_images=1,
-                aspect_ratio="16:9",
-            ),
-        )
-        image_bytes: bytes = result.generated_images[0].image.image_bytes
+    async def _generate_image(self, prompt: str, aspect_ratio: str = "1:1") -> str:
+        """Generate an image and return a data-URI, routing to the correct API."""
+        if self._image_model.lower().startswith("imagen"):
+            result = await self._client.aio.models.generate_images(
+                model=self._image_model,
+                prompt=prompt,
+                config=genai_types.GenerateImagesConfig(
+                    number_of_images=1,
+                    aspect_ratio=aspect_ratio,
+                ),
+            )
+            image_bytes: bytes = result.generated_images[0].image.image_bytes
+            mime = "image/png"
+        else:
+            # Nano Banana / Gemini image models use generate_content
+            response = await self._client.aio.models.generate_content(
+                model=self._image_model,
+                contents=prompt,
+                config=genai_types.GenerateContentConfig(
+                    response_modalities=["IMAGE"],
+                ),
+            )
+            image_bytes = None
+            mime = "image/png"
+            for part in response.candidates[0].content.parts:
+                if part.inline_data is not None and not getattr(part, "thought", False):
+                    image_bytes = part.inline_data.data
+                    mime = part.inline_data.mime_type or "image/png"
+                    break
+            if image_bytes is None:
+                raise ValueError("No image part found in Gemini response")
+
         b64 = base64.b64encode(image_bytes).decode()
-        return f"data:image/png;base64,{b64}"
+        return f"data:{mime};base64,{b64}"
+
+    async def generate_background(self, theme: str) -> str:
+        """Generate a background image and return a data-URI."""
+        prompt = (
+            f"A detailed game background scene for a whack-a-mole monster game. "
+            f"Theme: {theme}. "
+            "The scene shows a building facade or landscape with clearly visible "
+            "rectangular windows or openings. Cartoon/illustrated style, vivid colours. "
+            "No text, no UI elements."
+        )
+        return await self._generate_image(prompt, aspect_ratio="16:9")
 
     async def extract_bounding_boxes(self, image_url: str) -> list[dict[str, Any]]:
         """Use Gemini vision to detect window bounding boxes in an image."""
@@ -119,7 +152,7 @@ class GeminiAdapter(AIGenerator):
             "Return ONLY the JSON array, no explanation or markdown."
         )
         response = await self._client.aio.models.generate_content(
-            model=self.TEXT_MODEL,
+            model=self._text_model,
             contents=[image_part, prompt],
         )
         raw = response.text.strip()
@@ -128,19 +161,10 @@ class GeminiAdapter(AIGenerator):
         return json.loads(raw)
 
     async def generate_sprite(self, character_description: str) -> str:
-        """Generate a monster sprite with Imagen and return a data-URI."""
-        result = await self._client.aio.models.generate_images(
-            model=self.IMAGE_MODEL,
-            prompt=(
-                f"A cartoon monster character: {character_description}. "
-                "Transparent background, full-body portrait, facing forward, "
-                "vivid colours, game sprite style."
-            ),
-            config=genai_types.GenerateImagesConfig(
-                number_of_images=1,
-                aspect_ratio="1:1",
-            ),
+        """Generate a monster sprite and return a data-URI."""
+        prompt = (
+            f"A cartoon monster character: {character_description}. "
+            "White background, full-body portrait, facing forward, "
+            "vivid colours, game sprite style."
         )
-        image_bytes: bytes = result.generated_images[0].image.image_bytes
-        b64 = base64.b64encode(image_bytes).decode()
-        return f"data:image/png;base64,{b64}"
+        return await self._generate_image(prompt, aspect_ratio="1:1")
