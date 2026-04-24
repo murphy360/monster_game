@@ -279,30 +279,15 @@ class GeminiAdapter(AIGenerator):
                 "Unable to generate a background with empty windows after %s attempts",
                 self.BACKGROUND_MAX_RETRIES,
             )
-            b64 = base64.b64encode(last_fixed or b"").decode()
             return {
-                "image_url": "data:image/png;base64," + b64,
+                "image_url": "",
                 "window_key_color": last_key_color,
             }
         except Exception as exc:
-            logger.warning("Strict background generation failed; using relaxed fallback: %s", exc)
+            logger.warning("Strict background generation failed; returning no background: %s", exc)
             key_color = self._pick_window_key_color()
-            relaxed_prompt = (
-                f"A detailed game background scene for a whack-a-mole monster game. "
-                f"Theme: {theme}. "
-                "The scene shows a building facade or landscape with clearly visible rectangular windows or openings. "
-                f"Fill every window/opening interior with SOLID flat color {key_color}, and do not use {key_color} elsewhere. "
-                "No text, no UI elements. Cartoon/illustrated style, vivid colours."
-            )
-            image_bytes, _ = await self._generate_image_bytes(relaxed_prompt, aspect_ratio="16:9")
-            fixed = self._resize_background_to_canvas(
-                image_bytes,
-                self.BACKGROUND_WIDTH,
-                self.BACKGROUND_HEIGHT,
-            )
-            b64 = base64.b64encode(fixed).decode()
             return {
-                "image_url": "data:image/png;base64," + b64,
+                "image_url": "",
                 "window_key_color": key_color,
             }
 

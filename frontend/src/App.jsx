@@ -21,7 +21,7 @@ export default function App() {
   const [loadingPhase, setLoadingPhase] = useState('')
   const [error, setError] = useState(null)
   const [theme, setTheme] = useState('haunted house')
-  const [showDebugBounds, setShowDebugBounds] = useState(import.meta.env.VITE_DEBUG_BOUNDS === 'true')
+  const [showDebugBounds] = useState(import.meta.env.VITE_DEBUG_BOUNDS === 'true')
   const [savedLevels, setSavedLevels] = useState([])
   const [showLevelsList, setShowLevelsList] = useState(false)
 
@@ -81,16 +81,23 @@ export default function App() {
           } else if (line.startsWith('data: ')) {
             const payload = JSON.parse(line.slice(6))
             if (pendingEvent === 'sprite_count') {
-              setSpriteUrls(new Array(payload.count).fill(''))
-              setMonstersMeta(payload.monsters ?? [])
+              const nextMonsters = payload.monsters ?? []
+              setMonstersMeta(nextMonsters)
+              setSpriteUrls(new Array(payload.count ?? 0).fill(''))
               setLoadingPhase(`Summoning ${payload.count} monsters…`)
             } else if (pendingEvent === 'sprite') {
               setSpriteUrls((prev) => {
                 const next = [...prev]
-                next[payload.index] = payload.url
+                if (payload.url) {
+                  next[payload.index] = payload.url
+                }
                 return next
               })
             } else if (pendingEvent === 'layout') {
+              if (payload.generation_warning) {
+                setError(`Generation warning: ${payload.generation_warning}`)
+              }
+
               setLevelData(payload)
               setLoading(false)
               setLoadingPhase('')
@@ -117,7 +124,9 @@ export default function App() {
       if (!res.ok) throw new Error(`Server error: ${res.status}`)
       const data = await res.json()
       setLevelData(data)
-      setSpriteUrls(data.sprite_urls ?? [])
+      const nextMonsters = data.monsters_meta ?? []
+      setMonstersMeta(nextMonsters)
+      setSpriteUrls((data.sprite_urls ?? []).filter(Boolean))
     } catch (err) {
       setError(err.message)
     } finally {
@@ -129,11 +138,7 @@ export default function App() {
     <div className="app">
       <header className="app-header">
         <div className="app-title-row">
-          <h1>🧟 Monster Game</h1>
-          <nav className="page-nav">
-            <a href="/" className={!isTestPage ? 'active' : ''}>Game</a>
-            <a href="/test" className={isTestPage ? 'active' : ''}>Test</a>
-          </nav>
+          <h1>🧟 Cathy's Monster Masher</h1>
         </div>
         <div className="controls">
           {!isTestPage && (
@@ -159,14 +164,6 @@ export default function App() {
               )}
             </>
           )}
-          <label className="debug-toggle">
-            <input
-              type="checkbox"
-              checked={showDebugBounds}
-              onChange={(e) => setShowDebugBounds(e.target.checked)}
-            />
-            Debug
-          </label>
         </div>
         {error && <p className="error">Error: {error}</p>}
       </header>
@@ -196,6 +193,7 @@ export default function App() {
           overlayUrl={levelData.overlay_url || ''}
           windows={levelData.windows}
           spriteUrls={spriteUrls}
+          monstersMeta={monstersMeta}
           boardWidth={getSafeDimension(levelData.board_width, DEFAULT_BOARD_WIDTH)}
           boardHeight={getSafeDimension(levelData.board_height, DEFAULT_BOARD_HEIGHT)}
           debugBounds={showDebugBounds}

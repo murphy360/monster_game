@@ -1,8 +1,5 @@
-import React, { useState, useEffect } from 'react'
+import React from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-
-const VISIBLE_DURATION_MS = 2000  // how long the monster stays up
-const POPUP_INTERVAL_MS  = 3500   // how often a monster tries to pop up
 
 /**
  * WindowNode renders a single "window" on the game board and animates a
@@ -21,56 +18,19 @@ const POPUP_INTERVAL_MS  = 3500   // how often a monster tries to pop up
  */
 export default function WindowNode({
   window: win,
-  spriteUrl,
-  isWhacked,
+  windowId,
+  activeSpriteUrl = '',
+  showMissMarker = false,
   onWhack,
   debugBounds = false,
   renderSprite = true,
 }) {
-  const [visible, setVisible] = useState(false)
-
-  useEffect(() => {
-    if (!renderSprite) {
-      setVisible(false)
-      return undefined
-    }
-
-    if (isWhacked) return
-
-    // Pop up at a random offset so windows don't all fire simultaneously
-    const jitter = Math.random() * POPUP_INTERVAL_MS
-    const initialTimeout = setTimeout(startCycle, jitter)
-
-    function startCycle() {
-      setVisible(true)
-      const hideTimeout = setTimeout(() => {
-        setVisible(false)
-      }, VISIBLE_DURATION_MS)
-
-      return () => clearTimeout(hideTimeout)
-    }
-
-    return () => clearTimeout(initialTimeout)
-  }, [isWhacked, renderSprite])
-
-  // Restart cycling after monster hides (if not yet whacked)
-  useEffect(() => {
-    if (!renderSprite) return undefined
-    if (isWhacked || visible) return
-
-    const intervalId = setInterval(() => {
-      setVisible(true)
-      setTimeout(() => setVisible(false), VISIBLE_DURATION_MS)
-    }, POPUP_INTERVAL_MS)
-
-    return () => clearInterval(intervalId)
-  }, [isWhacked, visible, renderSprite])
+  const visible = renderSprite && Boolean(activeSpriteUrl)
 
   function handleClick() {
-    if (!renderSprite) return
-    if (visible && !isWhacked) {
-      setVisible(false)
-      onWhack()
+    if (!visible) return
+    if (visible && activeSpriteUrl) {
+      onWhack(windowId, activeSpriteUrl)
     }
   }
 
@@ -84,15 +44,15 @@ export default function WindowNode({
         width: win.width,
         height: win.height,
         overflow: 'hidden',   // Clip sprite to bounding box (mask effect)
-        cursor: renderSprite && visible && !isWhacked ? 'pointer' : 'default',
+        cursor: renderSprite && visible ? 'pointer' : 'default',
       }}
       onClick={handleClick}
     >
       <AnimatePresence>
-        {renderSprite && visible && !isWhacked && spriteUrl && (
+        {visible && (
           <motion.img
-            key="monster"
-            src={spriteUrl}
+            key={activeSpriteUrl}
+            src={activeSpriteUrl}
             alt="Monster"
             className="monster-sprite"
             style={{
@@ -110,6 +70,21 @@ export default function WindowNode({
             exit={{ y: '100%' }}
             transition={{ type: 'spring', stiffness: 260, damping: 20 }}
           />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showMissMarker && !visible && (
+          <motion.div
+            key="miss-marker"
+            className="miss-marker"
+            initial={{ opacity: 0, scale: 0.6 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 1.15 }}
+            transition={{ duration: 0.2 }}
+          >
+            X
+          </motion.div>
         )}
       </AnimatePresence>
 

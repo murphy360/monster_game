@@ -365,12 +365,40 @@ body {
 }
 
 .score-display {
-  text-align: right;
   font-size: 1.5rem;
   font-weight: 700;
   color: #ffd700;
+}
+
+.score-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.9rem;
   padding: 0.25rem 0.75rem;
   margin-bottom: 0.5rem;
+}
+
+.missed-display,
+.avg-display {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #d6def6;
+}
+
+.missed-display {
+  color: #ff9f6b;
+}
+
+.timer-display {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #c9d2ff;
+}
+
+.timer-display.done {
+  color: #ff7f7f;
 }
 
 .sprite-preview-screen {
@@ -503,6 +531,34 @@ body {
   -webkit-user-drag: none;
 }
 
+.round-over-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  background: rgba(6, 10, 18, 0.62);
+  backdrop-filter: blur(2px);
+  text-align: center;
+  pointer-events: none;
+}
+
+.round-over-title {
+  font-size: 2rem;
+  font-weight: 800;
+  color: #ffd166;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.round-over-score {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #f0f0f0;
+}
+
 .debug-box-layer {
   position: absolute;
   left: 0;
@@ -521,6 +577,50 @@ body {
   display: flex;
   justify-content: flex-end;
   margin-top: 0.75rem;
+}
+
+.sprite-stats-panel {
+  margin-top: 0.9rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 0.6rem;
+}
+
+.sprite-stat-card {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  padding: 0.5rem;
+  border-radius: 8px;
+  background: #101a31;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.sprite-stat-image {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  object-position: center;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.sprite-stat-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.sprite-stat-name {
+  font-size: 0.84rem;
+  color: #dce5ff;
+  font-weight: 700;
+}
+
+.sprite-stat-count {
+  font-size: 0.8rem;
+  color: #ffd166;
+  font-weight: 700;
 }
 
 .download-btn {
@@ -547,4 +647,17 @@ body {
 .monster-sprite {
   user-select: none;
   -webkit-user-drag: none;
+}
+
+.miss-marker {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ff3f59;
+  font-size: clamp(1.4rem, 4vw, 2.6rem);
+  font-weight: 900;
+  text-shadow: 0 0 8px rgba(255, 63, 89, 0.65);
+  pointer-events: none;
 }

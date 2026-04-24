@@ -33,6 +33,11 @@ class WindowConfig(BaseModel):
     height: int
 
 
+class MonsterMeta(BaseModel):
+    name: str
+    flavor: str = ""
+
+
 class GenerateLevelResponse(BaseModel):
     title: str
     background_url: str
@@ -40,6 +45,7 @@ class GenerateLevelResponse(BaseModel):
     window_key_color: str | None = None
     windows: list[WindowConfig]
     sprite_urls: list[str]
+    monsters_meta: list[MonsterMeta] = []
     board_width: int
     board_height: int
 
@@ -117,6 +123,21 @@ def _align_monster_descriptions(
     return clean + [fallback] * (window_count - len(clean))
 
 
+def _fallback_monster_name(description: str, index: int) -> str:
+    """Create a readable monster name when the model omits one."""
+    stop_words = {
+        "a", "an", "and", "cartoon", "friendly", "from", "in", "monster",
+        "of", "peeking", "the", "through", "tiny", "with",
+    }
+    words = [
+        word.capitalize()
+        for word in description.replace("-", " ").split()
+        if word.isalpha() and word.lower() not in stop_words
+    ]
+    candidate = " ".join(words[:3]).strip()
+    return candidate or f"Monster {index + 1}"
+
+
 def _fallback_level_config(theme: str) -> dict[str, Any]:
     """Return a deterministic level config for local testing when AI fails."""
     windows: list[dict[str, int]] = [
@@ -158,12 +179,14 @@ async def generate_level(
         board_width = BOARD_WIDTH
         board_height = BOARD_HEIGHT
         sprite_urls: list[str] = []
+        generation_warnings: list[str] = []
 
         # ── Step 1: get level config (fast text call) ────────────────────
         try:
             config = await ai.generate_level_config(request.theme)
         except Exception as exc:
             logger.warning("AI config generation failed; using fallback: %s", exc)
+            generation_warnings.append("AI text generation failed; using fallback monsters.")
             config = _fallback_level_config(request.theme)
 
         MIN_MONSTERS = 6
@@ -217,7 +240,7 @@ async def generate_level(
 
         # Pad names/flavors to exactly match the final sprite count.
         while len(names) < len(descriptions):
-            names.append(f"Monster {len(names) + 1}")
+            names.append(_fallback_monster_name(descriptions[len(names)], len(names)))
         while len(flavors) < len(descriptions):
             flavors.append("")
         names = names[: len(descriptions)]
@@ -235,6 +258,7 @@ async def generate_level(
                 return await ai.generate_background(request.theme)
             except Exception as exc:
                 logger.warning("Background generation failed: %s", exc)
+                generation_warnings.append("Background generation failed.")
                 return {"image_url": "", "window_key_color": "#00FF00"}
 
         bg_task: asyncio.Task[str] | None = None
@@ -248,6 +272,7 @@ async def generate_level(
                     url = await ai.generate_sprite(desc)
                 except Exception as exc:
                     logger.warning("Sprite generation failed for '%s': %s", desc, exc)
+                    generation_warnings.append("One or more monster sprites failed to generate.")
                     url = ""
                 sprite_urls.append(url)
                 yield f"event: sprite\ndata: {json.dumps({'index': idx, 'url': url})}\n\n"
@@ -288,6 +313,11 @@ async def generate_level(
         sprite_urls = sprite_urls[: len(windows)]
 
         title = config.get("title", request.theme)
+        sprite_success_count = sum(1 for url in sprite_urls if url)
+        warning_message = ""
+        if generation_warnings:
+            unique_warnings = sorted(set(generation_warnings))
+            warning_message = " ".join(unique_warnings)
 
         # ── Step 5: emit layout so client can show the game board ────────
         layout_payload = {
@@ -298,6 +328,8 @@ async def generate_level(
             "windows": windows,
             "board_width": board_width,
             "board_height": board_height,
+            "sprite_success_count": sprite_success_count,
+            "generation_warning": warning_message,
         }
         yield f"event: layout\ndata: {json.dumps(layout_payload)}\n\n"
 
@@ -309,6 +341,7 @@ async def generate_level(
             window_key_color=window_key_color,
             windows=[WindowConfig(**w) for w in windows],
             sprite_urls=sprite_urls,
+            monsters_meta=[MonsterMeta(**m) for m in monsters_meta],
             board_width=board_width,
             board_height=board_height,
         )
