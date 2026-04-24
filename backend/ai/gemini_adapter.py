@@ -19,7 +19,8 @@ import re
 from typing import Any
 
 import httpx
-import google.generativeai as genai
+from google import genai
+from google.genai import types as genai_types
 from dotenv import load_dotenv
 
 from .base import AIGenerator
@@ -44,8 +45,7 @@ class GeminiAdapter(AIGenerator):
                 "GEMINI_API_KEY environment variable is not set. "
                 "Create a .env file in the backend/ directory with GEMINI_API_KEY=<your key>."
             )
-        genai.configure(api_key=api_key)
-        self._text_model = genai.GenerativeModel(self.TEXT_MODEL)
+        self._client = genai.Client(api_key=api_key)
 
     # ------------------------------------------------------------------
     # Public interface
@@ -66,7 +66,10 @@ class GeminiAdapter(AIGenerator):
             '  "monster_descriptions": ["<description for window 1>", ...]\n'
             "}"
         )
-        response = await self._text_model.generate_content_async(prompt)
+        response = await self._client.aio.models.generate_content(
+            model=self.TEXT_MODEL,
+            contents=prompt,
+        )
         raw = response.text.strip()
         # Strip optional markdown fences
         raw = re.sub(r"^```[a-z]*\n?", "", raw)
@@ -75,8 +78,8 @@ class GeminiAdapter(AIGenerator):
 
     async def generate_background(self, theme: str) -> str:
         """Generate a background image with Imagen and return a data-URI."""
-        imagen = genai.ImageGenerationModel(self.IMAGE_MODEL)
-        result = await imagen.generate_images_async(
+        result = await self._client.aio.models.generate_images(
+            model=self.IMAGE_MODEL,
             prompt=(
                 f"A detailed game background scene for a whack-a-mole monster game. "
                 f"Theme: {theme}. "
@@ -84,10 +87,12 @@ class GeminiAdapter(AIGenerator):
                 "rectangular windows or openings. Cartoon/illustrated style, vivid colours. "
                 "No text, no UI elements."
             ),
-            number_of_images=1,
-            aspect_ratio="16:9",
+            config=genai_types.GenerateImagesConfig(
+                number_of_images=1,
+                aspect_ratio="16:9",
+            ),
         )
-        image_bytes: bytes = result.images[0]._image_bytes
+        image_bytes: bytes = result.generated_images[0].image.image_bytes
         b64 = base64.b64encode(image_bytes).decode()
         return f"data:image/png;base64,{b64}"
 
@@ -106,14 +111,17 @@ class GeminiAdapter(AIGenerator):
             mime = header.split(":")[1].split(";")[0]
             image_bytes = base64.b64decode(encoded)
 
-        image_part = {"mime_type": mime, "data": image_bytes}
+        image_part = genai_types.Part.from_bytes(data=image_bytes, mime_type=mime)
         prompt = (
             "Identify all rectangular windows or openings in this image that a monster "
             "could pop out of. For each window return a JSON array entry with keys "
             '"x", "y", "width", "height" (integer pixel values, origin at top-left). '
             "Return ONLY the JSON array, no explanation or markdown."
         )
-        response = await self._text_model.generate_content_async([image_part, prompt])
+        response = await self._client.aio.models.generate_content(
+            model=self.TEXT_MODEL,
+            contents=[image_part, prompt],
+        )
         raw = response.text.strip()
         raw = re.sub(r"^```[a-z]*\n?", "", raw)
         raw = re.sub(r"\n?```$", "", raw)
@@ -121,16 +129,18 @@ class GeminiAdapter(AIGenerator):
 
     async def generate_sprite(self, character_description: str) -> str:
         """Generate a monster sprite with Imagen and return a data-URI."""
-        imagen = genai.ImageGenerationModel(self.IMAGE_MODEL)
-        result = await imagen.generate_images_async(
+        result = await self._client.aio.models.generate_images(
+            model=self.IMAGE_MODEL,
             prompt=(
                 f"A cartoon monster character: {character_description}. "
                 "Transparent background, full-body portrait, facing forward, "
                 "vivid colours, game sprite style."
             ),
-            number_of_images=1,
-            aspect_ratio="1:1",
+            config=genai_types.GenerateImagesConfig(
+                number_of_images=1,
+                aspect_ratio="1:1",
+            ),
         )
-        image_bytes: bytes = result.images[0]._image_bytes
+        image_bytes: bytes = result.generated_images[0].image.image_bytes
         b64 = base64.b64encode(image_bytes).decode()
         return f"data:image/png;base64,{b64}"
