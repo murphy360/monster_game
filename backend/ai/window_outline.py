@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import colorsys
 import io
 from collections import deque
 from typing import Any
@@ -11,7 +12,19 @@ import httpx
 from PIL import Image
 
 DEFAULT_KEY_COLOR = (0, 255, 0)
+KEY_COLOR_CANDIDATES = (
+    (0, 255, 0),
+    (255, 0, 255),
+    (0, 255, 255),
+    (255, 255, 0),
+    (255, 95, 0),
+    (0, 166, 255),
+)
 COLOR_TOLERANCE = 72
+SOFT_COLOR_DISTANCE_TOLERANCE = 340
+SOFT_HUE_TOLERANCE = 0.09
+SOFT_MIN_SATURATION = 0.25
+SOFT_MIN_VALUE = 0.20
 MIN_COMPONENT_AREA = 500
 MIN_COMPONENT_SIDE = 20
 EDGE_COLOR_TOLERANCE = 96
@@ -44,10 +57,38 @@ def _channel_delta(r: int, g: int, b: int, key_color: tuple[int, int, int]) -> t
     return abs(r - kr), abs(g - kg), abs(b - kb)
 
 
+def _hue_distance(a: float, b: float) -> float:
+    """Return the shortest cyclic distance between two HSV hue values."""
+    return min(abs(a - b), 1.0 - abs(a - b))
+
+
+def _is_soft_key_color_match(r: int, g: int, b: int, key_color: tuple[int, int, int]) -> bool:
+    """Return True for shaded/anti-aliased variants of the configured key color."""
+    key_h, key_s, _ = colorsys.rgb_to_hsv(
+        key_color[0] / 255.0,
+        key_color[1] / 255.0,
+        key_color[2] / 255.0,
+    )
+    hue, saturation, value = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
+
+    if saturation < SOFT_MIN_SATURATION or value < SOFT_MIN_VALUE:
+        return False
+    if _hue_distance(hue, key_h) > SOFT_HUE_TOLERANCE:
+        return False
+    if abs(saturation - key_s) > 0.55:
+        return False
+
+    dr, dg, db = _channel_delta(r, g, b, key_color)
+    return dr + dg + db <= SOFT_COLOR_DISTANCE_TOLERANCE
+
+
 def _is_key_color(r: int, g: int, b: int, key_color: tuple[int, int, int]) -> bool:
     """Return True when a pixel is close to the configured chroma-key color."""
     dr, dg, db = _channel_delta(r, g, b, key_color)
-    return dr <= COLOR_TOLERANCE and dg <= COLOR_TOLERANCE and db <= COLOR_TOLERANCE
+    if dr <= COLOR_TOLERANCE and dg <= COLOR_TOLERANCE and db <= COLOR_TOLERANCE:
+        return True
+
+    return _is_soft_key_color_match(r, g, b, key_color)
 
 
 def _is_key_edge_color(r: int, g: int, b: int, key_color: tuple[int, int, int]) -> bool:
@@ -117,6 +158,11 @@ def _encode_png_data_uri(image: Image.Image) -> str:
     image.save(buffer, format="PNG")
     b64 = base64.b64encode(buffer.getvalue()).decode()
     return "data:image/png;base64," + b64
+
+
+def _key_color_hex(key_color: tuple[int, int, int]) -> str:
+    """Encode a key color tuple as #RRGGBB."""
+    return "#%02X%02X%02X" % key_color
 
 
 def _dilate_mask(mask: bytearray, width: int, height: int, radius: int = 3) -> None:
@@ -237,6 +283,49 @@ def _connected_components(mask: bytearray, width: int, height: int) -> list[dict
     return boxes
 
 
+def _score_windows(windows: list[dict[str, int]], width: int, height: int) -> float:
+    """Heuristic score for picking the most plausible key-color interpretation."""
+    if not windows:
+        return 0.0
+
+    image_area = width * height
+    total_area = sum(win["width"] * win["height"] for win in windows)
+    largest_area = max(win["width"] * win["height"] for win in windows)
+    window_count = len(windows)
+
+    if largest_area > image_area * 0.45:
+        return 0.0
+    if total_area < MIN_COMPONENT_AREA * 2:
+        return 0.0
+
+    count_factor = 1.0 if 4 <= window_count <= 30 else 0.55
+    return total_area * count_factor - largest_area * 0.25
+
+
+def _build_masks_for_key(
+    pixels: list[tuple[int, int, int, int]],
+    width: int,
+    height: int,
+    key_color: tuple[int, int, int],
+) -> tuple[bytearray, bytearray, list[dict[str, int]]]:
+    """Build base and cleanup masks plus detected windows for one key color."""
+    mask = bytearray(width * height)
+    for idx, (r, g, b, _) in enumerate(pixels):
+        if _is_key_color(r, g, b, key_color):
+            mask[idx] = 1
+
+    _grow_mask_into_key_edges(mask, pixels, width, height, key_color)
+
+    cleanup_mask = bytearray(mask)
+    _dilate_mask(cleanup_mask, width, height, radius=RENDER_MASK_DILATION_RADIUS)
+
+    dilated_mask = bytearray(mask)
+    _dilate_mask(dilated_mask, width, height)
+    windows = _connected_components(dilated_mask, width, height)
+
+    return mask, cleanup_mask, windows
+
+
 async def outline_windows_from_image(
     image_url: str,
     key_color: str | tuple[int, int, int] | list[int] | None = None,
@@ -248,22 +337,32 @@ async def outline_windows_from_image(
     pixels = list(base.getdata())
     resolved_key_color = _parse_key_color(key_color)
 
-    mask = bytearray(width * height)
-    for idx, (r, g, b, _) in enumerate(pixels):
-        if _is_key_color(r, g, b, resolved_key_color):
-            mask[idx] = 1
+    mask, cleanup_mask, windows = _build_masks_for_key(
+        pixels,
+        width,
+        height,
+        resolved_key_color,
+    )
 
-    _grow_mask_into_key_edges(mask, pixels, width, height, resolved_key_color)
+    best_score = _score_windows(windows, width, height)
+    if best_score <= 0.0:
+        for candidate in KEY_COLOR_CANDIDATES:
+            if candidate == resolved_key_color:
+                continue
 
-    # Expand the render mask slightly so anti-aliased key-color fringes are
-    # fully removed from the processed image and transparent overlay.
-    cleanup_mask = bytearray(mask)
-    _dilate_mask(cleanup_mask, width, height, radius=RENDER_MASK_DILATION_RADIUS)
-
-    # Create a dilated copy for bounding box detection only
-    # (keeps panel dividers in the rendered image but merges them for window detection)
-    dilated_mask = bytearray(mask)
-    _dilate_mask(dilated_mask, width, height)
+            candidate_mask, candidate_cleanup_mask, candidate_windows = _build_masks_for_key(
+                pixels,
+                width,
+                height,
+                candidate,
+            )
+            candidate_score = _score_windows(candidate_windows, width, height)
+            if candidate_score > best_score:
+                resolved_key_color = candidate
+                mask = candidate_mask
+                cleanup_mask = candidate_cleanup_mask
+                windows = candidate_windows
+                best_score = candidate_score
 
     processed_pixels: list[tuple[int, int, int, int]] = []
     overlay_pixels: list[tuple[int, int, int, int]] = []
@@ -278,8 +377,6 @@ async def outline_windows_from_image(
             processed_pixels.append((r, g, b, a))
             overlay_pixels.append((r, g, b, a))
             mask_pixels.append((0, 0, 0, 255))
-
-    windows = _connected_components(dilated_mask, width, height)
 
     processed = Image.new("RGBA", (width, height))
     processed.putdata(processed_pixels)
@@ -297,5 +394,5 @@ async def outline_windows_from_image(
         "mask_url": _encode_png_data_uri(mask_image),
         "board_width": width,
         "board_height": height,
-        "window_key_color": "#%02X%02X%02X" % resolved_key_color,
+        "window_key_color": _key_color_hex(resolved_key_color),
     }

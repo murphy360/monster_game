@@ -29,6 +29,7 @@ export default function TestPage({ debugBounds }) {
   const [displayBackgroundUrl, setDisplayBackgroundUrl] = useState('')
   const [overlayUrl, setOverlayUrl] = useState('')
   const [maskUrl, setMaskUrl] = useState('')
+  const [windowKeyColor, setWindowKeyColor] = useState('#00FF00')
   const [boardWidth, setBoardWidth] = useState(1280)
   const [boardHeight, setBoardHeight] = useState(720)
   const [windows, setWindows] = useState([])
@@ -75,7 +76,11 @@ export default function TestPage({ debugBounds }) {
       const response = await fetch('/serve-assets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image_url: backgroundUrl, character_descriptions: [] }),
+        body: JSON.stringify({
+          image_url: backgroundUrl,
+          window_key_color: windowKeyColor,
+          character_descriptions: [],
+        }),
       })
 
       if (!response.ok) {
@@ -87,6 +92,7 @@ export default function TestPage({ debugBounds }) {
       setDisplayBackgroundUrl(data.processed_background_url || backgroundUrl)
       setOverlayUrl(data.overlay_url || '')
       setMaskUrl(data.mask_url || '')
+      setWindowKeyColor(data.window_key_color || windowKeyColor)
       if (Number.isFinite(Number(data.board_width)) && Number(data.board_width) > 0) {
         setBoardWidth(Number(data.board_width))
       }
@@ -107,6 +113,15 @@ export default function TestPage({ debugBounds }) {
           <label className="upload-btn">
             <input type="file" accept="image/*" onChange={handleImageUpload} />
             Upload Image
+          </label>
+          <label className="theme-input" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            Key Color
+            <input
+              type="color"
+              value={windowKeyColor}
+              onChange={(event) => setWindowKeyColor(event.target.value.toUpperCase())}
+              disabled={loading}
+            />
           </label>
           <button
             type="button"
@@ -131,7 +146,7 @@ export default function TestPage({ debugBounds }) {
           </button>
         </div>
         <p className="test-copy">
-          Upload any background with pure green window areas, then run deterministic chroma-key outlining on that exact image.
+          Upload any background, choose the placeholder key color used in the openings, then run deterministic chroma-key outlining on that exact image.
         </p>
         <p className="test-copy">Current outlines: {windows.length}</p>
         {error && <p className="error">Error: {error}</p>}
