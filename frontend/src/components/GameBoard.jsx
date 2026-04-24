@@ -13,14 +13,21 @@ import WindowNode from './WindowNode.jsx'
  *   boardWidth    {number}  – Source board width in image-space pixels.
  *   boardHeight   {number}  – Source board height in image-space pixels.
  *   debugBounds   {boolean} – Whether to show debug-only window outlines.
+ *   renderSprites {boolean} – Whether gameplay sprites should be animated.
+ *   showScore     {boolean} – Whether to render the score display.
  */
 export default function GameBoard({
   backgroundUrl,
+  overlayUrl = '',
   windows = [],
   spriteUrls = [],
   boardWidth = 1280,
   boardHeight = 720,
   debugBounds = false,
+  renderSprites = true,
+  showScore = true,
+  showDownloadButton = false,
+  downloadFilename = 'monster-board.png',
 }) {
   // Track which windows have been "whacked" (clicked while monster is visible)
   const [score, setScore] = useState(0)
@@ -57,6 +64,11 @@ export default function GameBoard({
     }
   }, [boardWidth, boardHeight, backgroundUrl])
 
+  useEffect(() => {
+    setScore(0)
+    setWhackedIds(new Set())
+  }, [backgroundUrl, windows])
+
   const handleWhack = useCallback((windowId) => {
     setWhackedIds((prev) => {
       if (prev.has(windowId)) return prev
@@ -69,7 +81,7 @@ export default function GameBoard({
 
   return (
     <div className="game-board-wrapper">
-      <div className="score-display">Score: {score}</div>
+      {showScore && <div className="score-display">Score: {score}</div>}
       <div
         ref={boardRef}
         className="game-board"
@@ -95,11 +107,46 @@ export default function GameBoard({
               spriteUrl={spriteUrls[idx] ?? ''}
               isWhacked={whackedIds.has(win.id ?? idx)}
               onWhack={() => handleWhack(win.id ?? idx)}
-              debugBounds={debugBounds}
+              debugBounds={false}
+              renderSprite={renderSprites}
             />
           ))}
         </div>
+
+        {overlayUrl && <img src={overlayUrl} alt="Building overlay" className="game-board-overlay-image" />}
+
+        {debugBounds && (
+          <div
+            className="debug-box-layer"
+            style={{
+              width: boardWidth,
+              height: boardHeight,
+              transform: `translate(${transform.offsetX}px, ${transform.offsetY}px) scale(${transform.scale})`,
+              transformOrigin: 'top left',
+            }}
+          >
+            {windows.map((win, idx) => (
+              <div
+                key={`debug-${win.id ?? idx}`}
+                className="debug-box"
+                style={{
+                  left: win.x,
+                  top: win.y,
+                  width: win.width,
+                  height: win.height,
+                }}
+              />
+            ))}
+          </div>
+        )}
       </div>
+      {showDownloadButton && backgroundUrl && (
+        <div className="board-actions">
+          <a className="download-btn" href={backgroundUrl} download={downloadFilename}>
+            Download Image
+          </a>
+        </div>
+      )}
     </div>
   )
 }

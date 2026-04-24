@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     environment:
-      - GEMINI_TEXT_MODEL=${GEMINI_TEXT_MODEL:-gemini-2.0-flash}
+      - GEMINI_TEXT_MODEL=${GEMINI_TEXT_MODEL:-gemini-2.5-flash}
       - GEMINI_IMAGE_MODEL=${GEMINI_IMAGE_MODEL:-gemini-2.5-flash-image}
     ports:
       - "8001:8000"

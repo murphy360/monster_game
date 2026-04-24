@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from ..ai.base import AIGenerator
 from ..ai.dependencies import get_ai_generator
+from ..ai.window_outline import outline_windows_from_image
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -23,6 +24,12 @@ class ServeAssetsRequest(BaseModel):
 class ServeAssetsResponse(BaseModel):
     windows: list[dict[str, Any]]
     sprite_urls: list[str]
+    processed_background_url: str | None = None
+    overlay_url: str | None = None
+    mask_url: str | None = None
+    board_width: int | None = None
+    board_height: int | None = None
+    method: str = "chroma-key"
 
 
 @router.post("/serve-assets", response_model=ServeAssetsResponse)
@@ -34,7 +41,8 @@ async def serve_assets(
     generate sprite images for each provided character description.
     """
     try:
-        windows = await ai.extract_bounding_boxes(request.image_url)
+        outlined = await outline_windows_from_image(request.image_url)
+        windows = outlined.get("windows", [])
     except Exception as exc:
         logger.exception("Bounding box extraction failed")
         raise HTTPException(status_code=502, detail=f"Bounding box extraction failed: {exc}") from exc
@@ -48,4 +56,12 @@ async def serve_assets(
             url = ""
         sprite_urls.append(url)
 
-    return ServeAssetsResponse(windows=windows, sprite_urls=sprite_urls)
+    return ServeAssetsResponse(
+        windows=windows,
+        sprite_urls=sprite_urls,
+        processed_background_url=outlined.get("processed_background_url"),
+        overlay_url=outlined.get("overlay_url"),
+        mask_url=outlined.get("mask_url"),
+        board_width=outlined.get("board_width"),
+        board_height=outlined.get("board_height"),
+    )

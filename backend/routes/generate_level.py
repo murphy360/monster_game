@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from ..ai.base import AIGenerator
 from ..ai.dependencies import get_ai_generator
+from ..ai.window_outline import outline_windows_from_image
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -31,6 +32,7 @@ class WindowConfig(BaseModel):
 class GenerateLevelResponse(BaseModel):
     title: str
     background_url: str
+    overlay_url: str
     windows: list[WindowConfig]
     sprite_urls: list[str]
     board_width: int
@@ -141,6 +143,7 @@ async def generate_level(
     board_height = BOARD_HEIGHT
 
     background_url = ""
+    overlay_url = ""
     windows: list[dict[str, int]] = []
     config: dict[str, Any]
     sprite_urls: list[str] = []
@@ -153,11 +156,19 @@ async def generate_level(
 
         if background_url:
             try:
-                detected_windows = await ai.extract_bounding_boxes(background_url)
-                windows = _normalize_windows(detected_windows, board_width, board_height)
+                outlined = await outline_windows_from_image(background_url)
+                background_url = outlined.get("processed_background_url", background_url)
+                overlay_url = outlined.get("overlay_url", "")
+                board_width = _as_int(outlined.get("board_width"), BOARD_WIDTH) or BOARD_WIDTH
+                board_height = _as_int(outlined.get("board_height"), BOARD_HEIGHT) or BOARD_HEIGHT
+                windows = _normalize_windows(
+                    outlined.get("windows", []),
+                    board_width,
+                    board_height,
+                )
             except Exception as exc:
                 logger.warning(
-                    "Window extraction from background failed; falling back to config windows: %s",
+                    "Deterministic window outlining failed; falling back to config windows: %s",
                     exc,
                 )
 
@@ -189,6 +200,7 @@ async def generate_level(
     return GenerateLevelResponse(
         title=config.get("title", request.theme),
         background_url=background_url,
+        overlay_url=overlay_url,
         windows=[WindowConfig(**w) for w in windows],
         sprite_urls=sprite_urls,
         board_width=board_width,

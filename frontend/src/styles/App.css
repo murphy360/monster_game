@@ -36,6 +36,32 @@ body {
   flex: 0 0 auto;
 }
 
+.app-title-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex: 1 1 100%;
+}
+
+.page-nav {
+  display: inline-flex;
+  gap: 0.4rem;
+}
+
+.page-nav a {
+  color: #c9d2ff;
+  text-decoration: none;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid rgba(233, 69, 96, 0.35);
+  border-radius: 999px;
+}
+
+.page-nav a.active {
+  background: #e94560;
+  color: #fff;
+  border-color: #e94560;
+}
+
 .controls {
   display: flex;
   flex-wrap: wrap;
@@ -72,6 +98,30 @@ body {
 
 .generate-btn:not(:disabled):hover {
   background: #c73652;
+}
+
+.secondary-btn {
+  background: #243762;
+}
+
+.secondary-btn:disabled {
+  background: #1d2942;
+}
+
+.secondary-btn:not(:disabled):hover {
+  background: #1d4c86;
+}
+
+.secondary-btn {
+  background: #243762;
+}
+
+.secondary-btn:disabled {
+  background: #1d2942;
+}
+
+.secondary-btn:not(:disabled):hover {
+  background: #1d4c86;
 }
 
 .debug-toggle {
@@ -123,6 +173,114 @@ body {
   margin-top: 0.45rem;
 }
 
+.test-page {
+  width: 100%;
+}
+
+.test-panel {
+  width: min(1280px, calc(100% - 2rem));
+  margin: 1.5rem auto 0;
+  padding: 1rem 1.25rem;
+  border-radius: 12px;
+  background: rgba(16, 24, 44, 0.85);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+.test-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.upload-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 1.25rem;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: #16213e;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.upload-btn input {
+  display: none;
+}
+
+.test-copy {
+  margin-top: 0.8rem;
+  color: #b8c3e1;
+}
+
+.test-steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.9rem;
+}
+
+.step-card {
+  background: rgba(8, 14, 27, 0.7);
+  border-radius: 10px;
+  padding: 0.7rem;
+}
+
+.step-card h3 {
+  font-size: 0.92rem;
+  margin-bottom: 0.5rem;
+  color: #d4def8;
+}
+
+.step-image {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #050a14;
+}
+
+.step-preview {
+  position: relative;
+  width: 100%;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #050a14;
+}
+
+.step-preview .step-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+.step-boxes-layer,
+.step-sprite-layer {
+  position: absolute;
+  inset: 0;
+}
+
+.step-box {
+  position: absolute;
+  border: 2px solid rgba(255, 222, 94, 0.95);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 0 10px rgba(255, 222, 94, 0.45);
+  border-radius: 3px;
+}
+
+.step-sprite {
+  position: absolute;
+  object-fit: contain;
+  object-position: bottom;
+  opacity: 0.95;
+}
+
+.overlay-step-image {
+  pointer-events: none;
+}
+
 /* ── Game Board ── */
 .game-board-wrapper {
   position: relative;
@@ -168,6 +326,50 @@ body {
   will-change: transform;
 }
 
+.game-board-overlay-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.debug-box-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+}
+
+.debug-box {
+  position: absolute;
+  border: 3px solid rgba(255, 230, 120, 0.9);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+  border-radius: 4px;
+}
+
+.board-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.75rem;
+}
+
+.download-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  background: #16213e;
+  color: #fff;
+  text-decoration: none;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
 /* ── Window Node ── */
 .window-node {
   border-radius: 4px;
@@ -175,11 +377,6 @@ body {
 
 .window-frame {
   border: none;
-}
-
-.window-node.debug .window-frame {
-  border: 3px solid rgba(255, 230, 120, 0.9);
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
 }
 
 .monster-sprite {

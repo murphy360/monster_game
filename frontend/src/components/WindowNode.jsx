@@ -17,11 +17,24 @@ const POPUP_INTERVAL_MS  = 3500   // how often a monster tries to pop up
  *   isWhacked {boolean} – Whether this window has been scored already.
  *   onWhack   {()=>void} – Callback invoked when the player clicks the monster.
  *   debugBounds {boolean} – Whether to show calibration outlines.
+ *   renderSprite {boolean} – Whether to animate and render a sprite in the window.
  */
-export default function WindowNode({ window: win, spriteUrl, isWhacked, onWhack, debugBounds = false }) {
+export default function WindowNode({
+  window: win,
+  spriteUrl,
+  isWhacked,
+  onWhack,
+  debugBounds = false,
+  renderSprite = true,
+}) {
   const [visible, setVisible] = useState(false)
 
   useEffect(() => {
+    if (!renderSprite) {
+      setVisible(false)
+      return undefined
+    }
+
     if (isWhacked) return
 
     // Pop up at a random offset so windows don't all fire simultaneously
@@ -38,10 +51,11 @@ export default function WindowNode({ window: win, spriteUrl, isWhacked, onWhack,
     }
 
     return () => clearTimeout(initialTimeout)
-  }, [isWhacked])
+  }, [isWhacked, renderSprite])
 
   // Restart cycling after monster hides (if not yet whacked)
   useEffect(() => {
+    if (!renderSprite) return undefined
     if (isWhacked || visible) return
 
     const intervalId = setInterval(() => {
@@ -50,9 +64,10 @@ export default function WindowNode({ window: win, spriteUrl, isWhacked, onWhack,
     }, POPUP_INTERVAL_MS)
 
     return () => clearInterval(intervalId)
-  }, [isWhacked, visible])
+  }, [isWhacked, visible, renderSprite])
 
   function handleClick() {
+    if (!renderSprite) return
     if (visible && !isWhacked) {
       setVisible(false)
       onWhack()
@@ -69,12 +84,12 @@ export default function WindowNode({ window: win, spriteUrl, isWhacked, onWhack,
         width: win.width,
         height: win.height,
         overflow: 'hidden',   // Clip sprite to bounding box (mask effect)
-        cursor: visible && !isWhacked ? 'pointer' : 'default',
+        cursor: renderSprite && visible && !isWhacked ? 'pointer' : 'default',
       }}
       onClick={handleClick}
     >
       <AnimatePresence>
-        {visible && !isWhacked && (
+        {renderSprite && visible && !isWhacked && (
           <motion.img
             key="monster"
             src={spriteUrl || 'https://placehold.co/100x150/ff6b6b/ffffff?text=👾'}

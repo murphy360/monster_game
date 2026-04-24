@@ -20,8 +20,8 @@ Copy [backend/.env.example](backend/.env.example) to [backend/.env](backend/.env
 GEMINI_API_KEY=your_real_key_here
 
 # Optional model overrides
-GEMINI_TEXT_MODEL=gemini-2.0-flash
-GEMINI_IMAGE_MODEL=imagen-3.0-generate-002
+GEMINI_TEXT_MODEL=gemini-2.5-flash
+GEMINI_IMAGE_MODEL=gemini-2.5-flash-image
 ```
 
 ### 2) Build and start both services
@@ -59,4 +59,5 @@ docker compose down
 
 - Frontend requests (`/generate-level`, `/serve-assets`, `/health`) are proxied to the backend.
 - For code changes, rebuild with `docker compose --env-file backend/.env up --build`.
-- Backend model defaults are `gemini-2.0-flash` (text/vision) and `imagen-3.0-generate-002` (image generation).
+- Backend model defaults are `gemini-2.5-flash` (text/vision) and `gemini-2.5-flash-image` (image generation).
+- Window boundary recognition flow is documented in [docs/window-outlining-process.md](docs/window-outlining-process.md).
