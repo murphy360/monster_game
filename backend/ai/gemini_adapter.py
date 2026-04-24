@@ -74,10 +74,15 @@ class GeminiAdapter(AIGenerator):
             '  "title": "<level name>",\n'
             '  "windows": [\n'
             '    {"id": 1, "x": <int>, "y": <int>, "width": <int>, "height": <int>},\n'
-            "    ... (6-8 windows total, coordinates fit a 1280x720 canvas)\n"
+            "    ... (6-8 windows, coordinates fit a 1280x720 canvas)\n"
             "  ],\n"
-            '  "monster_descriptions": ["<description for window 1>", ...]\n'
-            "}"
+            '  "monster_names": ["<short spooky name for monster 1>", ...],\n'
+            '  "monster_flavor": ["<one short punchy tagline for monster 1>", ...],\n'
+            '  "monster_descriptions": ["<detailed image-generation description for monster 1>", ...]\n'
+            "}\n\n"
+            "monster_names: short, evocative names (2-4 words, e.g. 'The Wailing Widow').\n"
+            "monster_flavor: one witty or spooky sentence shown to the player while loading.\n"
+            "monster_descriptions: detailed visual descriptions used to generate sprite art."
         )
         response = await self._client.aio.models.generate_content(
             model=self._text_model,

@@ -64,3 +64,4 @@ class AIGenerator(ABC):
         Returns:
             A URL or base-64 data-URI string for the sprite image.
         """
+

@@ -164,14 +164,68 @@ async def generate_level(
             logger.warning("AI config generation failed; using fallback: %s", exc)
             config = _fallback_level_config(request.theme)
 
-        descriptions: list[str] = [
-            d for d in config.get("monster_descriptions", [])
-            if isinstance(d, str) and d.strip()
-        ]
-        if not descriptions:
-            descriptions = ["friendly cartoon monster peeking from a window"] * 6
+        MIN_MONSTERS = 6
+        MAX_MONSTERS = 8
 
-        yield f"event: sprite_count\ndata: {json.dumps({'count': len(descriptions)})}\n\n"
+        def _extract_monsters(
+            cfg: dict[str, Any],
+        ) -> tuple[list[str], list[str], list[str]]:
+            descriptions_local = [
+                d for d in cfg.get("monster_descriptions", [])
+                if isinstance(d, str) and d.strip()
+            ]
+            names_local = [
+                n for n in cfg.get("monster_names", [])
+                if isinstance(n, str) and n.strip()
+            ]
+            flavors_local = [
+                f for f in cfg.get("monster_flavor", [])
+                if isinstance(f, str)
+            ]
+            return descriptions_local, names_local, flavors_local
+
+        descriptions, names, flavors = _extract_monsters(config)
+
+        # If the first batch is short, request one more batch before background generation.
+        if len(descriptions) < MIN_MONSTERS:
+            logger.info(
+                "Only got %d monsters (min=%d); requesting a second batch.",
+                len(descriptions),
+                MIN_MONSTERS,
+            )
+            try:
+                extra_config = await ai.generate_level_config(request.theme)
+                extra_descriptions, extra_names, extra_flavors = _extract_monsters(extra_config)
+                descriptions.extend(extra_descriptions)
+                names.extend(extra_names)
+                flavors.extend(extra_flavors)
+            except Exception as exc:
+                logger.warning("Second monster batch failed: %s", exc)
+
+        # Keep variety but cap the upper bound.
+        descriptions = descriptions[:MAX_MONSTERS]
+        names = names[:MAX_MONSTERS]
+        flavors = flavors[:MAX_MONSTERS]
+
+        # If still short, pad to minimum so gameplay can continue.
+        fallback_desc = "friendly cartoon monster peeking from a window"
+        if len(descriptions) < MIN_MONSTERS:
+            last = descriptions[-1] if descriptions else fallback_desc
+            descriptions.extend([last] * (MIN_MONSTERS - len(descriptions)))
+
+        # Pad names/flavors to exactly match the final sprite count.
+        while len(names) < len(descriptions):
+            names.append(f"Monster {len(names) + 1}")
+        while len(flavors) < len(descriptions):
+            flavors.append("")
+        names = names[: len(descriptions)]
+        flavors = flavors[: len(descriptions)]
+
+        monsters_meta = [
+            {"name": n, "flavor": f} for n, f in zip(names, flavors)
+        ]
+
+        yield f"event: sprite_count\ndata: {json.dumps({'count': len(descriptions), 'monsters': monsters_meta})}\n\n"
 
         # ── Step 2: kick off background generation concurrently ──────────
         async def _gen_background() -> str:

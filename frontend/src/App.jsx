@@ -16,6 +16,7 @@ export default function App() {
   const isTestPage = pathname === '/test'
   const [levelData, setLevelData] = useState(null)
   const [spriteUrls, setSpriteUrls] = useState([])
+  const [monstersMeta, setMonstersMeta] = useState([]) // [{name, flavor}]
   const [loading, setLoading] = useState(false)
   const [loadingPhase, setLoadingPhase] = useState('')
   const [error, setError] = useState(null)
@@ -35,11 +36,24 @@ export default function App() {
     if (!isTestPage) fetchSavedLevels()
   }, [isTestPage, fetchSavedLevels])
 
+  // When all sprites have arrived but the background is still processing,
+  // update the status so the user knows what's left.
+  useEffect(() => {
+    if (
+      loading &&
+      spriteUrls.length > 0 &&
+      spriteUrls.every((url) => url !== '')
+    ) {
+      setLoadingPhase('All monsters ready — finishing the background scene…')
+    }
+  }, [loading, spriteUrls])
+
   async function handleGenerateLevel() {
     setLoading(true)
     setError(null)
     setLevelData(null)
     setSpriteUrls([])
+    setMonstersMeta([])
     setLoadingPhase('Preparing monsters…')
     try {
       const res = await fetch('/generate-level', {
@@ -68,6 +82,7 @@ export default function App() {
             const payload = JSON.parse(line.slice(6))
             if (pendingEvent === 'sprite_count') {
               setSpriteUrls(new Array(payload.count).fill(''))
+              setMonstersMeta(payload.monsters ?? [])
               setLoadingPhase(`Summoning ${payload.count} monsters…`)
             } else if (pendingEvent === 'sprite') {
               setSpriteUrls((prev) => {
@@ -192,14 +207,25 @@ export default function App() {
           <p className="loading-title">{loadingPhase}</p>
           <p className="loading-phase">Building the background scene at the same time…</p>
           <div className="sprite-preview-grid">
-            {spriteUrls.map((url, idx) => (
-              <div key={idx} className={`sprite-preview-card${url ? ' loaded' : ''}`}>
-                {url
-                  ? <img src={url} alt={`Monster ${idx + 1}`} />
-                  : <span className="sprite-preview-pending" />
-                }
-              </div>
-            ))}
+            {spriteUrls.map((url, idx) => {
+              const meta = monstersMeta[idx]
+              return (
+                <div key={idx} className={`sprite-preview-card${url ? ' loaded' : ''}`}>
+                  <div className="sprite-preview-image">
+                    {url
+                      ? <img src={url} alt={meta?.name ?? `Monster ${idx + 1}`} />
+                      : <span className="sprite-preview-pending" />
+                    }
+                  </div>
+                  {meta && (
+                    <div className="sprite-preview-info">
+                      <span className="sprite-preview-name">{meta.name}</span>
+                      {meta.flavor && <span className="sprite-preview-flavor">{meta.flavor}</span>}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
       ) : (
