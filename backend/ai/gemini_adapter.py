@@ -17,11 +17,14 @@ loaded by python-dotenv). Model IDs can be overridden with
 from __future__ import annotations
 
 import base64
+import io
 import json
 import logging
 import os
 import re
 from typing import Any
+
+from PIL import Image
 
 import httpx
 from google import genai
@@ -83,8 +86,26 @@ class GeminiAdapter(AIGenerator):
         raw = re.sub(r"\n?```$", "", raw)
         return json.loads(raw)
 
-    async def _generate_image(self, prompt: str, aspect_ratio: str = "1:1") -> str:
-        """Generate an image and return a data-URI, routing to the correct API."""
+    @staticmethod
+    def _strip_white_background(image_bytes: bytes, threshold: int = 240) -> bytes:
+        """Replace near-white pixels with transparency and return PNG bytes."""
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+        r, g, b, a = img.split()
+        r_data = r.getdata()
+        g_data = g.getdata()
+        b_data = b.getdata()
+        new_a = [
+            0 if (rv >= threshold and gv >= threshold and bv >= threshold) else av
+            for rv, gv, bv, av in zip(r_data, g_data, b_data, a.getdata())
+        ]
+        a.putdata(new_a)
+        img = Image.merge("RGBA", (r, g, b, a))
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+
+    async def _generate_image_bytes(self, prompt: str, aspect_ratio: str = "1:1") -> tuple[bytes, str]:
+        """Generate an image and return (raw_bytes, mime_type), routing to the correct API."""
         if self._image_model.lower().startswith("imagen"):
             result = await self._client.aio.models.generate_images(
                 model=self._image_model,
@@ -94,8 +115,7 @@ class GeminiAdapter(AIGenerator):
                     aspect_ratio=aspect_ratio,
                 ),
             )
-            image_bytes: bytes = result.generated_images[0].image.image_bytes
-            mime = "image/png"
+            return result.generated_images[0].image.image_bytes, "image/png"
         else:
             # Nano Banana / Gemini image models use generate_content
             response = await self._client.aio.models.generate_content(
@@ -105,16 +125,14 @@ class GeminiAdapter(AIGenerator):
                     response_modalities=["IMAGE"],
                 ),
             )
-            image_bytes = None
-            mime = "image/png"
             for part in response.candidates[0].content.parts:
                 if part.inline_data is not None and not getattr(part, "thought", False):
-                    image_bytes = part.inline_data.data
-                    mime = part.inline_data.mime_type or "image/png"
-                    break
-            if image_bytes is None:
-                raise ValueError("No image part found in Gemini response")
+                    return part.inline_data.data, part.inline_data.mime_type or "image/png"
+            raise ValueError("No image part found in Gemini response")
 
+    async def _generate_image(self, prompt: str, aspect_ratio: str = "1:1") -> str:
+        """Generate an image and return a data-URI."""
+        image_bytes, mime = await self._generate_image_bytes(prompt, aspect_ratio)
         b64 = base64.b64encode(image_bytes).decode()
         return f"data:{mime};base64,{b64}"
 
@@ -161,10 +179,13 @@ class GeminiAdapter(AIGenerator):
         return json.loads(raw)
 
     async def generate_sprite(self, character_description: str) -> str:
-        """Generate a monster sprite and return a data-URI."""
+        """Generate a monster sprite with background removed and return a data-URI."""
         prompt = (
             f"A cartoon monster character: {character_description}. "
-            "White background, full-body portrait, facing forward, "
+            "Plain white background, full-body portrait, facing forward, "
             "vivid colours, game sprite style."
         )
-        return await self._generate_image(prompt, aspect_ratio="1:1")
+        image_bytes, _ = await self._generate_image_bytes(prompt, aspect_ratio="1:1")
+        stripped = self._strip_white_background(image_bytes)
+        b64 = base64.b64encode(stripped).decode()
+        return "data:image/png;base64," + b64
