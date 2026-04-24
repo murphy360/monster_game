@@ -45,6 +45,8 @@ class GeminiAdapter(AIGenerator):
     DEFAULT_TEXT_MODEL = "gemini-2.0-flash"
     # Image generation model (Nano Banana by default)
     DEFAULT_IMAGE_MODEL = "gemini-2.5-flash-image"
+    BACKGROUND_WIDTH = 1280
+    BACKGROUND_HEIGHT = 720
 
     def __init__(self) -> None:
         api_key = os.getenv("GEMINI_API_KEY")
@@ -104,6 +106,19 @@ class GeminiAdapter(AIGenerator):
         img.save(buf, format="PNG")
         return buf.getvalue()
 
+    @staticmethod
+    def _resize_background_to_canvas(
+        image_bytes: bytes,
+        target_width: int,
+        target_height: int,
+    ) -> bytes:
+        """Resize generated background to an exact target pixel canvas."""
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        resized = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+        buf = io.BytesIO()
+        resized.save(buf, format="PNG")
+        return buf.getvalue()
+
     async def _generate_image_bytes(self, prompt: str, aspect_ratio: str = "1:1") -> tuple[bytes, str]:
         """Generate an image and return (raw_bytes, mime_type), routing to the correct API."""
         if self._image_model.lower().startswith("imagen"):
@@ -145,7 +160,14 @@ class GeminiAdapter(AIGenerator):
             "rectangular windows or openings. Cartoon/illustrated style, vivid colours. "
             "No text, no UI elements."
         )
-        return await self._generate_image(prompt, aspect_ratio="16:9")
+        image_bytes, _ = await self._generate_image_bytes(prompt, aspect_ratio="16:9")
+        fixed = self._resize_background_to_canvas(
+            image_bytes,
+            self.BACKGROUND_WIDTH,
+            self.BACKGROUND_HEIGHT,
+        )
+        b64 = base64.b64encode(fixed).decode()
+        return "data:image/png;base64," + b64
 
     async def extract_bounding_boxes(self, image_url: str) -> list[dict[str, Any]]:
         """Use Gemini vision to detect window bounding boxes in an image."""
@@ -165,9 +187,11 @@ class GeminiAdapter(AIGenerator):
         image_part = genai_types.Part.from_bytes(data=image_bytes, mime_type=mime)
         prompt = (
             "Identify all rectangular windows or openings in this image that a monster "
-            "could pop out of. For each window return a JSON array entry with keys "
-            '"x", "y", "width", "height" (integer pixel values, origin at top-left). '
-            "Return ONLY the JSON array, no explanation or markdown."
+            "could pop out of. Return only openings that are clearly visible. "
+            "Ignore doors, signs, reflections, and decorative non-openings. "
+            "Respond with ONLY a JSON array where each item has keys "
+            '"x", "y", "width", "height". Use integer pixel values with origin at top-left, '
+            "no decimals, no extra keys, no markdown. If none are found, return []."
         )
         response = await self._client.aio.models.generate_content(
             model=self._text_model,

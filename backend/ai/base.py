@@ -48,7 +48,10 @@ class AIGenerator(ABC):
 
         Returns:
             A list of dicts, each containing ``x``, ``y``, ``width``, and
-            ``height`` keys (all in pixels).
+            ``height`` keys (all in pixels) measured in the source image's
+            coordinate space (top-left origin). For generated backgrounds in
+            this project, coordinates should align with a 1280x720 image-space
+            board contract unless the API returns explicit board dimensions.
         """
 
     @abstractmethod

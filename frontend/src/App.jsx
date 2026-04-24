@@ -2,12 +2,20 @@ import React, { useState } from 'react'
 import GameBoard from './components/GameBoard.jsx'
 
 const FALLBACK_BACKGROUND = 'https://placehold.co/1280x720/1a1a2e/ffffff?text=Monster+Game'
+const DEFAULT_BOARD_WIDTH = 1280
+const DEFAULT_BOARD_HEIGHT = 720
+
+function getSafeDimension(value, fallback) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
 
 export default function App() {
   const [levelData, setLevelData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [theme, setTheme] = useState('haunted house')
+  const [showDebugBounds, setShowDebugBounds] = useState(import.meta.env.VITE_DEBUG_BOUNDS === 'true')
 
   async function handleGenerateLevel() {
     setLoading(true)
@@ -43,6 +51,14 @@ export default function App() {
           <button onClick={handleGenerateLevel} disabled={loading} className="generate-btn">
             {loading ? 'Generating…' : 'Generate Level'}
           </button>
+          <label className="debug-toggle">
+            <input
+              type="checkbox"
+              checked={showDebugBounds}
+              onChange={(e) => setShowDebugBounds(e.target.checked)}
+            />
+            Show debug bounds
+          </label>
         </div>
         {error && <p className="error">Error: {error}</p>}
       </header>
@@ -52,6 +68,9 @@ export default function App() {
           backgroundUrl={levelData.background_url || FALLBACK_BACKGROUND}
           windows={levelData.windows}
           spriteUrls={levelData.sprite_urls}
+          boardWidth={getSafeDimension(levelData.board_width, DEFAULT_BOARD_WIDTH)}
+          boardHeight={getSafeDimension(levelData.board_height, DEFAULT_BOARD_HEIGHT)}
+          debugBounds={showDebugBounds}
         />
       ) : (
         <div className="placeholder">

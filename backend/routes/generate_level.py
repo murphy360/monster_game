@@ -33,6 +33,81 @@ class GenerateLevelResponse(BaseModel):
     background_url: str
     windows: list[WindowConfig]
     sprite_urls: list[str]
+    board_width: int
+    board_height: int
+
+
+BOARD_WIDTH = 1280
+BOARD_HEIGHT = 720
+
+
+def _as_int(value: Any, default: int = 0) -> int:
+    """Safely convert arbitrary values to ints."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _normalize_windows(
+    windows: list[dict[str, Any]],
+    board_width: int,
+    board_height: int,
+) -> list[dict[str, int]]:
+    """Normalize detected windows into stable id/x/y/width/height records."""
+    normalized_raw: list[dict[str, int]] = []
+
+    for raw in windows:
+        width = max(1, min(_as_int(raw.get("width"), 0), board_width))
+        height = max(1, min(_as_int(raw.get("height"), 0), board_height))
+        x = _as_int(raw.get("x"), 0)
+        y = _as_int(raw.get("y"), 0)
+
+        # Clamp origin so each box remains fully inside board bounds.
+        x = max(0, min(x, max(0, board_width - width)))
+        y = max(0, min(y, max(0, board_height - height)))
+
+        normalized_raw.append(
+            {
+                "x": x,
+                "y": y,
+                "width": width,
+                "height": height,
+            }
+        )
+
+    # Keep ordering deterministic across responses so id assignment is stable.
+    normalized_raw.sort(key=lambda win: (win["y"], win["x"], win["width"], win["height"]))
+
+    normalized: list[dict[str, int]] = []
+    for idx, win in enumerate(normalized_raw):
+        normalized.append(
+            {
+                "id": idx + 1,
+                "x": win["x"],
+                "y": win["y"],
+                "width": win["width"],
+                "height": win["height"],
+            }
+        )
+
+    return normalized
+
+
+def _align_monster_descriptions(
+    descriptions: list[str],
+    window_count: int,
+) -> list[str]:
+    """Ensure exactly one description per detected window."""
+    clean = [d for d in descriptions if isinstance(d, str) and d.strip()]
+    if window_count <= 0:
+        return []
+
+    if len(clean) >= window_count:
+        return clean[:window_count]
+
+    fallback = clean[-1] if clean else "friendly cartoon monster peeking from a window"
+    return clean + [fallback] * (window_count - len(clean))
 
 
 def _fallback_level_config(theme: str) -> dict[str, Any]:
@@ -62,15 +137,12 @@ async def generate_level(
     ai: Annotated[AIGenerator, Depends(get_ai_generator)],
 ) -> Any:
     """Generate a complete level: layout config, background image, and sprites."""
-    try:
-        config = await ai.generate_level_config(request.theme)
-    except Exception as exc:
-        logger.warning(
-            "AI config generation failed; using local fallback level: %s", exc
-        )
-        config = _fallback_level_config(request.theme)
+    board_width = BOARD_WIDTH
+    board_height = BOARD_HEIGHT
 
     background_url = ""
+    windows: list[dict[str, int]] = []
+    config: dict[str, Any]
     sprite_urls: list[str] = []
 
     if request.generate_images:
@@ -79,7 +151,33 @@ async def generate_level(
         except Exception as exc:
             logger.warning("Background generation failed, using empty string: %s", exc)
 
-        descriptions: list[str] = config.get("monster_descriptions", [])
+        if background_url:
+            try:
+                detected_windows = await ai.extract_bounding_boxes(background_url)
+                windows = _normalize_windows(detected_windows, board_width, board_height)
+            except Exception as exc:
+                logger.warning(
+                    "Window extraction from background failed; falling back to config windows: %s",
+                    exc,
+                )
+
+    try:
+        config = await ai.generate_level_config(request.theme)
+    except Exception as exc:
+        logger.warning(
+            "AI config generation failed; using local fallback level: %s", exc
+        )
+        config = _fallback_level_config(request.theme)
+
+    # Source of truth is the generated background extraction when available.
+    if not windows:
+        windows = _normalize_windows(config.get("windows", []), board_width, board_height)
+
+    if request.generate_images:
+        descriptions = _align_monster_descriptions(
+            config.get("monster_descriptions", []),
+            len(windows),
+        )
         for desc in descriptions:
             try:
                 url = await ai.generate_sprite(desc)
@@ -91,6 +189,8 @@ async def generate_level(
     return GenerateLevelResponse(
         title=config.get("title", request.theme),
         background_url=background_url,
-        windows=[WindowConfig(**w) for w in config.get("windows", [])],
+        windows=[WindowConfig(**w) for w in windows],
         sprite_urls=sprite_urls,
+        board_width=board_width,
+        board_height=board_height,
     )

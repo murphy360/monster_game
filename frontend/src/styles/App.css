@@ -38,6 +38,7 @@ body {
 
 .controls {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.75rem;
   flex: 1 1 auto;
 }
@@ -71,6 +72,18 @@ body {
 
 .generate-btn:not(:disabled):hover {
   background: #c73652;
+}
+
+.debug-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  color: #d7d7df;
+}
+
+.debug-toggle input {
+  accent-color: #e94560;
 }
 
 .error {
@@ -115,11 +128,39 @@ body {
   border-radius: 8px;
   overflow: hidden;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  background: #0a0f1c;
+}
+
+.game-board-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.game-overlay {
+  position: absolute;
+  left: 0;
+  top: 0;
+  will-change: transform;
 }
 
 /* ── Window Node ── */
 .window-node {
   border-radius: 4px;
+}
+
+.window-frame {
+  border: none;
+}
+
+.window-node.debug .window-frame {
+  border: 3px solid rgba(255, 230, 120, 0.9);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
 }
 
 .monster-sprite {

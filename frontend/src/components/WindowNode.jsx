@@ -16,8 +16,9 @@ const POPUP_INTERVAL_MS  = 3500   // how often a monster tries to pop up
  *   spriteUrl {string}  – Image URL for the monster sprite.
  *   isWhacked {boolean} – Whether this window has been scored already.
  *   onWhack   {()=>void} – Callback invoked when the player clicks the monster.
+ *   debugBounds {boolean} – Whether to show calibration outlines.
  */
-export default function WindowNode({ window: win, spriteUrl, isWhacked, onWhack }) {
+export default function WindowNode({ window: win, spriteUrl, isWhacked, onWhack, debugBounds = false }) {
   const [visible, setVisible] = useState(false)
 
   useEffect(() => {
@@ -60,7 +61,7 @@ export default function WindowNode({ window: win, spriteUrl, isWhacked, onWhack 
 
   return (
     <div
-      className="window-node"
+      className={`window-node${debugBounds ? ' debug' : ''}`}
       style={{
         position: 'absolute',
         left: win.x,
@@ -103,7 +104,6 @@ export default function WindowNode({ window: win, spriteUrl, isWhacked, onWhack 
         style={{
           position: 'absolute',
           inset: 0,
-          border: '3px solid rgba(0,0,0,0.3)',
           borderRadius: 4,
           pointerEvents: 'none',
         }}
