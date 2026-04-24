@@ -100,6 +100,45 @@ def _encode_png_data_uri(image: Image.Image) -> str:
     return "data:image/png;base64," + b64
 
 
+def _dilate_mask(mask: bytearray, width: int, height: int, radius: int = 3) -> None:
+    """Dilate (expand) the mask to fill small gaps between adjacent regions.
+    
+    This fills in small black dividers (like window pane separators) so that
+    multi-pane windows are detected as a single connected component.
+    """
+    additions: list[int] = []
+    
+    for idx in range(width * height):
+        if mask[idx]:
+            continue
+        
+        x = idx % width
+        y = idx // width
+        has_masked_neighbor = False
+        
+        # Check if this unmasked pixel is within 'radius' distance of a masked pixel
+        for dy in range(-radius, radius + 1):
+            for dx in range(-radius, radius + 1):
+                nx = x + dx
+                ny = y + dy
+                
+                if 0 <= nx < width and 0 <= ny < height:
+                    neighbor_idx = ny * width + nx
+                    if mask[neighbor_idx]:
+                        has_masked_neighbor = True
+                        break
+            
+            if has_masked_neighbor:
+                break
+        
+        if has_masked_neighbor:
+            additions.append(idx)
+    
+    # Apply all additions
+    for idx in additions:
+        mask[idx] = 1
+
+
 def _connected_components(mask: bytearray, width: int, height: int) -> list[dict[str, int]]:
     """Return bounding boxes for connected mask regions."""
     visited = bytearray(width * height)
@@ -188,6 +227,11 @@ async def outline_windows_from_image(image_url: str) -> dict[str, Any]:
 
     _grow_mask_into_greenish_edges(mask, pixels, width, height)
 
+    # Create a dilated copy for bounding box detection only
+    # (keeps panel dividers in the rendered image but merges them for window detection)
+    dilated_mask = bytearray(mask)
+    _dilate_mask(dilated_mask, width, height)
+
     processed_pixels: list[tuple[int, int, int, int]] = []
     overlay_pixels: list[tuple[int, int, int, int]] = []
     mask_pixels: list[tuple[int, int, int, int]] = []
@@ -202,7 +246,7 @@ async def outline_windows_from_image(image_url: str) -> dict[str, Any]:
             overlay_pixels.append((r, g, b, a))
             mask_pixels.append((0, 0, 0, 255))
 
-    windows = _connected_components(mask, width, height)
+    windows = _connected_components(dilated_mask, width, height)
 
     processed = Image.new("RGBA", (width, height))
     processed.putdata(processed_pixels)

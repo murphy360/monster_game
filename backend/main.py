@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .routes.generate_level import router as generate_level_router
+from .routes.levels import router as levels_router
 from .routes.serve_assets import router as serve_assets_router
 
 logging.basicConfig(level=logging.INFO)
@@ -25,6 +26,7 @@ app.add_middleware(
 )
 
 app.include_router(generate_level_router)
+app.include_router(levels_router)
 app.include_router(serve_assets_router)
 
 

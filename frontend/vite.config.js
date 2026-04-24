@@ -11,6 +11,10 @@ export default defineConfig({
         target: apiProxyTarget,
         changeOrigin: true,
       },
+      '/levels': {
+        target: apiProxyTarget,
+        changeOrigin: true,
+      },
       '/serve-assets': {
         target: apiProxyTarget,
         changeOrigin: true,

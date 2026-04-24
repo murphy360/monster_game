@@ -155,26 +155,101 @@ body {
 }
 
 .loading-placeholder {
-  max-width: 760px;
-  text-align: left;
+  max-width: 480px;
+  text-align: center;
   color: #d6d9e8;
   line-height: 1.5;
   font-size: 1.02rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: center;
 }
 
 .loading-title {
   color: #ffd166;
   font-size: 1.2rem;
   font-weight: 700;
-  margin-bottom: 0.6rem;
 }
 
-.loading-placeholder p + p {
-  margin-top: 0.45rem;
+.loading-phase {
+  color: #c9d2ff;
+  font-size: 0.95rem;
+  min-height: 1.4em;
+}
+
+.loading-pulse-bar {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.loading-pulse-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: #e94560;
+  width: 40%;
+  animation: pulse-slide 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse-slide {
+  0%   { transform: translateX(-150%); }
+  100% { transform: translateX(350%); }
 }
 
 .test-page {
   width: 100%;
+}
+
+/* ── Saved Levels List ── */
+.levels-list {
+  width: min(900px, calc(100% - 2rem));
+  margin: 2rem auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.levels-list h2 {
+  color: #e94560;
+  font-size: 1.4rem;
+  margin-bottom: 0.25rem;
+}
+
+.level-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.9rem 1.25rem;
+  border-radius: 8px;
+  border: 1px solid rgba(233, 69, 96, 0.3);
+  background: #16213e;
+  color: #f0f0f0;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.level-card:hover:not(:disabled) {
+  background: #1e2f5e;
+  border-color: #e94560;
+}
+
+.level-card:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.level-card-title {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.level-card-meta {
+  font-size: 0.8rem;
+  color: #9ba4bf;
 }
 
 .test-panel {
@@ -296,6 +371,68 @@ body {
   color: #ffd700;
   padding: 0.25rem 0.75rem;
   margin-bottom: 0.5rem;
+}
+
+.sprite-preview-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 2.5rem 1.5rem;
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.sprite-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 1rem;
+  width: 100%;
+}
+
+.sprite-preview-card {
+  aspect-ratio: 2 / 3;
+  border-radius: 10px;
+  border: 1px solid rgba(233, 69, 96, 0.25);
+  background: #0e1628;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.3s;
+}
+
+.sprite-preview-card.loaded {
+  border-color: rgba(233, 69, 96, 0.7);
+  animation: card-pop 0.3s ease;
+}
+
+@keyframes card-pop {
+  0%   { transform: scale(0.85); opacity: 0; }
+  100% { transform: scale(1);    opacity: 1; }
+}
+
+.sprite-preview-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 0.25rem;
+}
+
+.sprite-preview-pending {
+  display: block;
+  width: 40%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 3px solid rgba(233, 69, 96, 0.3);
+  border-top-color: #e94560;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 .game-board {

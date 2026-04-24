@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
-from typing import Annotated, Any
+from typing import Annotated, Any, AsyncGenerator
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from ..ai.base import AIGenerator
 from ..ai.dependencies import get_ai_generator
 from ..ai.window_outline import outline_windows_from_image
+from ..storage import save_level
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -133,26 +137,72 @@ def _fallback_level_config(theme: str) -> dict[str, Any]:
     }
 
 
-@router.post("/generate-level", response_model=GenerateLevelResponse)
+@router.post("/generate-level")
 async def generate_level(
     request: GenerateLevelRequest,
     ai: Annotated[AIGenerator, Depends(get_ai_generator)],
-) -> Any:
-    """Generate a complete level: layout config, background image, and sprites."""
-    board_width = BOARD_WIDTH
-    board_height = BOARD_HEIGHT
+) -> StreamingResponse:
+    """Generate a level and stream it via SSE.
 
-    background_url = ""
-    overlay_url = ""
-    windows: list[dict[str, int]] = []
-    config: dict[str, Any]
-    sprite_urls: list[str] = []
+    Events emitted in order:
+      - ``sprite_count`` – how many sprites will be generated.
+      - ``sprite``       – one event per monster as each finishes, ``{index, url}``.
+      - ``layout``       – board geometry + background/overlay URLs (background
+                           was generated concurrently with sprites).
+      - ``done``         – stream complete.
+    """
 
-    if request.generate_images:
+    async def _event_stream() -> AsyncGenerator[str, None]:
+        board_width = BOARD_WIDTH
+        board_height = BOARD_HEIGHT
+        sprite_urls: list[str] = []
+
+        # ── Step 1: get level config (fast text call) ────────────────────
         try:
-            background_url = await ai.generate_background(request.theme)
+            config = await ai.generate_level_config(request.theme)
         except Exception as exc:
-            logger.warning("Background generation failed, using empty string: %s", exc)
+            logger.warning("AI config generation failed; using fallback: %s", exc)
+            config = _fallback_level_config(request.theme)
+
+        descriptions: list[str] = [
+            d for d in config.get("monster_descriptions", [])
+            if isinstance(d, str) and d.strip()
+        ]
+        if not descriptions:
+            descriptions = ["friendly cartoon monster peeking from a window"] * 6
+
+        yield f"event: sprite_count\ndata: {json.dumps({'count': len(descriptions)})}\n\n"
+
+        # ── Step 2: kick off background generation concurrently ──────────
+        async def _gen_background() -> str:
+            try:
+                return await ai.generate_background(request.theme)
+            except Exception as exc:
+                logger.warning("Background generation failed: %s", exc)
+                return ""
+
+        bg_task: asyncio.Task[str] | None = None
+        if request.generate_images:
+            bg_task = asyncio.create_task(_gen_background())
+
+        # ── Step 3: generate sprites, stream each as it finishes ─────────
+        if request.generate_images:
+            for idx, desc in enumerate(descriptions):
+                try:
+                    url = await ai.generate_sprite(desc)
+                except Exception as exc:
+                    logger.warning("Sprite generation failed for '%s': %s", desc, exc)
+                    url = ""
+                sprite_urls.append(url)
+                yield f"event: sprite\ndata: {json.dumps({'index': idx, 'url': url})}\n\n"
+
+        # ── Step 4: await background + outline windows ───────────────────
+        background_url = ""
+        overlay_url = ""
+        windows: list[dict[str, int]] = []
+
+        if bg_task is not None:
+            background_url = await bg_task
 
         if background_url:
             try:
@@ -167,42 +217,44 @@ async def generate_level(
                     board_height,
                 )
             except Exception as exc:
-                logger.warning(
-                    "Deterministic window outlining failed; falling back to config windows: %s",
-                    exc,
-                )
+                logger.warning("Window outlining failed; falling back to config windows: %s", exc)
 
-    try:
-        config = await ai.generate_level_config(request.theme)
-    except Exception as exc:
-        logger.warning(
-            "AI config generation failed; using local fallback level: %s", exc
+        if not windows:
+            windows = _normalize_windows(config.get("windows", []), board_width, board_height)
+
+        # Align sprite list to actual window count (pad with "" or trim)
+        while len(sprite_urls) < len(windows):
+            sprite_urls.append("")
+        sprite_urls = sprite_urls[: len(windows)]
+
+        title = config.get("title", request.theme)
+
+        # ── Step 5: emit layout so client can show the game board ────────
+        layout_payload = {
+            "title": title,
+            "background_url": background_url,
+            "overlay_url": overlay_url,
+            "windows": windows,
+            "board_width": board_width,
+            "board_height": board_height,
+        }
+        yield f"event: layout\ndata: {json.dumps(layout_payload)}\n\n"
+
+        # ── Step 6: save then signal done ────────────────────────────────
+        full_response = GenerateLevelResponse(
+            title=title,
+            background_url=background_url,
+            overlay_url=overlay_url,
+            windows=[WindowConfig(**w) for w in windows],
+            sprite_urls=sprite_urls,
+            board_width=board_width,
+            board_height=board_height,
         )
-        config = _fallback_level_config(request.theme)
+        try:
+            save_level(full_response.model_dump(), request.theme)
+        except Exception as exc:
+            logger.warning("Failed to save level: %s", exc)
 
-    # Source of truth is the generated background extraction when available.
-    if not windows:
-        windows = _normalize_windows(config.get("windows", []), board_width, board_height)
+        yield "event: done\ndata: {}\n\n"
 
-    if request.generate_images:
-        descriptions = _align_monster_descriptions(
-            config.get("monster_descriptions", []),
-            len(windows),
-        )
-        for desc in descriptions:
-            try:
-                url = await ai.generate_sprite(desc)
-            except Exception as exc:
-                logger.warning("Sprite generation failed for '%s': %s", desc, exc)
-                url = ""
-            sprite_urls.append(url)
-
-    return GenerateLevelResponse(
-        title=config.get("title", request.theme),
-        background_url=background_url,
-        overlay_url=overlay_url,
-        windows=[WindowConfig(**w) for w in windows],
-        sprite_urls=sprite_urls,
-        board_width=board_width,
-        board_height=board_height,
-    )
+    return StreamingResponse(_event_stream(), media_type="text/event-stream")

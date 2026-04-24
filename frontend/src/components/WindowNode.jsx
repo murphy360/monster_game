@@ -89,10 +89,10 @@ export default function WindowNode({
       onClick={handleClick}
     >
       <AnimatePresence>
-        {renderSprite && visible && !isWhacked && (
+        {renderSprite && visible && !isWhacked && spriteUrl && (
           <motion.img
             key="monster"
-            src={spriteUrl || 'https://placehold.co/100x150/ff6b6b/ffffff?text=👾'}
+            src={spriteUrl}
             alt="Monster"
             className="monster-sprite"
             style={{

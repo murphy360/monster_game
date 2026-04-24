@@ -8,6 +8,8 @@ services:
       - GEMINI_IMAGE_MODEL=${GEMINI_IMAGE_MODEL:-gemini-2.5-flash-image}
     ports:
       - "8001:8000"
+    volumes:
+      - ./data:/data
 
   frontend:
     build:
