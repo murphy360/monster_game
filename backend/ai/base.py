@@ -6,7 +6,14 @@ interface without touching the rest of the application.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, TypedDict
+
+
+class GeneratedBackground(TypedDict):
+    """Background image plus chroma-key metadata for window detection."""
+
+    image_url: str
+    window_key_color: str
 
 
 class AIGenerator(ABC):
@@ -29,14 +36,15 @@ class AIGenerator(ABC):
         """
 
     @abstractmethod
-    async def generate_background(self, theme: str) -> str:
+    async def generate_background(self, theme: str) -> GeneratedBackground:
         """Generate or retrieve a background image for the given theme.
 
         Args:
             theme: A text description of the level theme.
 
         Returns:
-            A URL or base-64 data-URI string for the background image.
+            A dict containing the background image URL/data URI and the
+            per-image chroma-key color used for empty windows/openings.
         """
 
     @abstractmethod

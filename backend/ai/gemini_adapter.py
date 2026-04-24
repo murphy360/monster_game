@@ -22,6 +22,7 @@ import json
 import logging
 import os
 import re
+import secrets
 from typing import Any
 
 from PIL import Image
@@ -31,7 +32,7 @@ from google import genai
 from google.genai import types as genai_types
 from dotenv import load_dotenv
 
-from .base import AIGenerator
+from .base import AIGenerator, GeneratedBackground
 
 load_dotenv()
 
@@ -48,6 +49,14 @@ class GeminiAdapter(AIGenerator):
     BACKGROUND_WIDTH = 1280
     BACKGROUND_HEIGHT = 720
     BACKGROUND_MAX_RETRIES = 6
+    WINDOW_KEY_COLORS = (
+        "#00FF00",
+        "#FF00FF",
+        "#00FFFF",
+        "#FFFF00",
+        "#FF5F00",
+        "#00A6FF",
+    )
 
     def __init__(self) -> None:
         api_key = os.getenv("GEMINI_API_KEY")
@@ -158,6 +167,28 @@ class GeminiAdapter(AIGenerator):
         parsed = self._safe_load_json(response.text or "", {"has_occupied_windows": False})
         return bool(parsed.get("has_occupied_windows", False))
 
+    async def _has_key_color_conflict(
+        self,
+        image_bytes: bytes,
+        mime_type: str,
+        key_color: str,
+    ) -> bool:
+        """Return True when the chosen key color appears outside intended openings."""
+        image_part = genai_types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
+        prompt = (
+            f"Check whether the exact color {key_color}, or obviously near-identical anti-aliased variants, "
+            "appears anywhere outside the interior of intended architectural windows/openings in this scene. "
+            "Treat use of that color on leaves, sky, decorations, trim, reflections, props, ground, or water as a conflict. "
+            "Ignore only thin anti-aliased edge pixels immediately touching a valid window/opening interior. "
+            "Respond with ONLY JSON object: {\"has_key_color_conflict\": true|false}."
+        )
+        response = await self._client.aio.models.generate_content(
+            model=self._text_model,
+            contents=[image_part, prompt],
+        )
+        parsed = self._safe_load_json(response.text or "", {"has_key_color_conflict": False})
+        return bool(parsed.get("has_key_color_conflict", False))
+
     async def _generate_image_bytes(self, prompt: str, aspect_ratio: str = "1:1") -> tuple[bytes, str]:
         """Generate an image and return (raw_bytes, mime_type), routing to the correct API."""
         if self._image_model.lower().startswith("imagen"):
@@ -190,19 +221,27 @@ class GeminiAdapter(AIGenerator):
         b64 = base64.b64encode(image_bytes).decode()
         return f"data:{mime};base64,{b64}"
 
-    async def generate_background(self, theme: str) -> str:
-        """Generate a background image and return a data-URI."""
+    @classmethod
+    def _pick_window_key_color(cls) -> str:
+        """Choose a reserved chroma-key color unlikely to appear naturally."""
+        return secrets.choice(cls.WINDOW_KEY_COLORS)
+
+    async def generate_background(self, theme: str) -> GeneratedBackground:
+        """Generate a background image and return a data-URI plus key-color metadata."""
         try:
             last_fixed: bytes | None = None
+            last_key_color = self._pick_window_key_color()
             for attempt in range(1, self.BACKGROUND_MAX_RETRIES + 1):
+                key_color = self._pick_window_key_color()
+                last_key_color = key_color
                 prompt = (
                     f"A detailed game background scene for a whack-a-mole monster game. "
                     f"Theme: {theme}. "
                     "The scene must show architecture with clearly visible rectangular windows/openings "
                     "that are EMPTY and unobstructed. "
-                    "Fill every window/opening interior with SOLID pure chroma green (#00FF00). "
-                    "Do not use this pure green color anywhere else in the image. "
-                    "No gradients or texture inside the green openings. "
+                    f"Fill every window/opening interior with SOLID flat color {key_color}. "
+                    f"Do not use {key_color} anywhere else in the image. "
+                    "No gradients or texture inside those colored openings. "
                     "Do not include monsters, creatures, people, silhouettes, faces, or characters inside windows/openings. "
                     "Do not include text or UI elements. Cartoon/illustrated style, vivid colours. "
                     f"Attempt variation {attempt}: emphasize clean, empty opening interiors suitable for sprite pop-outs."
@@ -216,14 +255,24 @@ class GeminiAdapter(AIGenerator):
                 last_fixed = fixed
 
                 has_occupied_windows = await self._has_occupied_windows(fixed, "image/png")
-                if not has_occupied_windows:
+                has_key_color_conflict = await self._has_key_color_conflict(
+                    fixed,
+                    "image/png",
+                    key_color,
+                )
+                if not has_occupied_windows and not has_key_color_conflict:
                     b64 = base64.b64encode(fixed).decode()
-                    return "data:image/png;base64," + b64
+                    return {
+                        "image_url": "data:image/png;base64," + b64,
+                        "window_key_color": key_color,
+                    }
 
                 logger.warning(
-                    "Background generation attempt %s/%s had occupied windows; retrying",
+                    "Background generation attempt %s/%s failed validation (occupied_windows=%s, key_color_conflict=%s); retrying",
                     attempt,
                     self.BACKGROUND_MAX_RETRIES,
+                    has_occupied_windows,
+                    has_key_color_conflict,
                 )
 
             logger.warning(
@@ -231,14 +280,18 @@ class GeminiAdapter(AIGenerator):
                 self.BACKGROUND_MAX_RETRIES,
             )
             b64 = base64.b64encode(last_fixed or b"").decode()
-            return "data:image/png;base64," + b64
+            return {
+                "image_url": "data:image/png;base64," + b64,
+                "window_key_color": last_key_color,
+            }
         except Exception as exc:
             logger.warning("Strict background generation failed; using relaxed fallback: %s", exc)
+            key_color = self._pick_window_key_color()
             relaxed_prompt = (
                 f"A detailed game background scene for a whack-a-mole monster game. "
                 f"Theme: {theme}. "
                 "The scene shows a building facade or landscape with clearly visible rectangular windows or openings. "
-                "Fill every window/opening interior with SOLID pure chroma green (#00FF00), and do not use this green elsewhere. "
+                f"Fill every window/opening interior with SOLID flat color {key_color}, and do not use {key_color} elsewhere. "
                 "No text, no UI elements. Cartoon/illustrated style, vivid colours."
             )
             image_bytes, _ = await self._generate_image_bytes(relaxed_prompt, aspect_ratio="16:9")
@@ -248,7 +301,10 @@ class GeminiAdapter(AIGenerator):
                 self.BACKGROUND_HEIGHT,
             )
             b64 = base64.b64encode(fixed).decode()
-            return "data:image/png;base64," + b64
+            return {
+                "image_url": "data:image/png;base64," + b64,
+                "window_key_color": key_color,
+            }
 
     async def extract_bounding_boxes(self, image_url: str) -> list[dict[str, Any]]:
         """Use Gemini vision to detect window bounding boxes in an image."""

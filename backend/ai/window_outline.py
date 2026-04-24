@@ -10,41 +10,60 @@ from typing import Any
 import httpx
 from PIL import Image
 
-KEY_COLOR = (0, 255, 0)
+DEFAULT_KEY_COLOR = (0, 255, 0)
 COLOR_TOLERANCE = 72
 MIN_COMPONENT_AREA = 500
 MIN_COMPONENT_SIDE = 20
+EDGE_COLOR_TOLERANCE = 96
 EDGE_GROW_PASSES = 2
+RENDER_MASK_DILATION_RADIUS = 2
+WINDOW_BOX_PADDING = 6
 WINDOW_DARK_FILL = (6, 16, 30, 255)
 
 
-def _is_key_color(r: int, g: int, b: int) -> bool:
-    """Return True when a pixel is close to the configured chroma-key green."""
-    kr, kg, kb = KEY_COLOR
-    close_to_key = (
-        abs(r - kr) <= COLOR_TOLERANCE
-        and abs(g - kg) <= COLOR_TOLERANCE
-        and abs(b - kb) <= COLOR_TOLERANCE
-    )
+def _parse_key_color(key_color: str | tuple[int, int, int] | list[int] | None) -> tuple[int, int, int]:
+    """Normalize hex or RGB key-color input to an RGB tuple."""
+    if key_color is None:
+        return DEFAULT_KEY_COLOR
 
-    # Generated images often anti-alias key windows, so accept bright,
-    # clearly green-dominant pixels even when not near exact #00FF00.
-    dominant_green = g >= 150 and g >= r + 35 and g >= b + 35
-    return close_to_key or dominant_green
+    if isinstance(key_color, str):
+        normalized = key_color.strip().lstrip("#")
+        if len(normalized) != 6:
+            raise ValueError(f"Invalid key color '{key_color}'")
+        return tuple(int(normalized[index:index + 2], 16) for index in (0, 2, 4))
 
+    if len(key_color) != 3:
+        raise ValueError("Key color must have exactly three channels")
 
-def _is_greenish_edge(r: int, g: int, b: int) -> bool:
-    """Return True for softer green pixels that appear on anti-aliased edges."""
-    return g >= 80 and g >= r + 16 and g >= b + 16
+    return tuple(max(0, min(int(channel), 255)) for channel in key_color)
 
 
-def _grow_mask_into_greenish_edges(
+def _channel_delta(r: int, g: int, b: int, key_color: tuple[int, int, int]) -> tuple[int, int, int]:
+    """Return absolute RGB channel distance from the configured key color."""
+    kr, kg, kb = key_color
+    return abs(r - kr), abs(g - kg), abs(b - kb)
+
+
+def _is_key_color(r: int, g: int, b: int, key_color: tuple[int, int, int]) -> bool:
+    """Return True when a pixel is close to the configured chroma-key color."""
+    dr, dg, db = _channel_delta(r, g, b, key_color)
+    return dr <= COLOR_TOLERANCE and dg <= COLOR_TOLERANCE and db <= COLOR_TOLERANCE
+
+
+def _is_key_edge_color(r: int, g: int, b: int, key_color: tuple[int, int, int]) -> bool:
+    """Return True for anti-aliased edge pixels that still match the key color closely."""
+    dr, dg, db = _channel_delta(r, g, b, key_color)
+    return dr + dg + db <= EDGE_COLOR_TOLERANCE * 2
+
+
+def _grow_mask_into_key_edges(
     mask: bytearray,
     pixels: list[tuple[int, int, int, int]],
     width: int,
     height: int,
+    key_color: tuple[int, int, int],
 ) -> None:
-    """Dilate the keyed mask into neighboring greenish pixels to reduce green halos."""
+    """Dilate the keyed mask into neighboring key-colored edge pixels."""
     for _ in range(EDGE_GROW_PASSES):
         additions: list[int] = []
         for idx in range(width * height):
@@ -68,7 +87,7 @@ def _grow_mask_into_greenish_edges(
                 continue
 
             r, g, b, _ = pixels[idx]
-            if _is_greenish_edge(r, g, b):
+            if _is_key_edge_color(r, g, b, key_color):
                 additions.append(idx)
 
         if not additions:
@@ -200,12 +219,17 @@ def _connected_components(mask: bytearray, width: int, height: int) -> list[dict
         if component_width < MIN_COMPONENT_SIDE or component_height < MIN_COMPONENT_SIDE:
             continue
 
+        padded_min_x = max(0, min_x - WINDOW_BOX_PADDING)
+        padded_min_y = max(0, min_y - WINDOW_BOX_PADDING)
+        padded_max_x = min(width - 1, max_x + WINDOW_BOX_PADDING)
+        padded_max_y = min(height - 1, max_y + WINDOW_BOX_PADDING)
+
         boxes.append(
             {
-                "x": min_x,
-                "y": min_y,
-                "width": component_width,
-                "height": component_height,
+                "x": padded_min_x,
+                "y": padded_min_y,
+                "width": padded_max_x - padded_min_x + 1,
+                "height": padded_max_y - padded_min_y + 1,
             }
         )
 
@@ -213,19 +237,28 @@ def _connected_components(mask: bytearray, width: int, height: int) -> list[dict
     return boxes
 
 
-async def outline_windows_from_image(image_url: str) -> dict[str, Any]:
+async def outline_windows_from_image(
+    image_url: str,
+    key_color: str | tuple[int, int, int] | list[int] | None = None,
+) -> dict[str, Any]:
     """Build deterministic window boxes and visualization layers from chroma-key windows."""
     image_bytes, _ = await _decode_image_url(image_url)
     base = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
     width, height = base.size
     pixels = list(base.getdata())
+    resolved_key_color = _parse_key_color(key_color)
 
     mask = bytearray(width * height)
     for idx, (r, g, b, _) in enumerate(pixels):
-        if _is_key_color(r, g, b):
+        if _is_key_color(r, g, b, resolved_key_color):
             mask[idx] = 1
 
-    _grow_mask_into_greenish_edges(mask, pixels, width, height)
+    _grow_mask_into_key_edges(mask, pixels, width, height, resolved_key_color)
+
+    # Expand the render mask slightly so anti-aliased key-color fringes are
+    # fully removed from the processed image and transparent overlay.
+    cleanup_mask = bytearray(mask)
+    _dilate_mask(cleanup_mask, width, height, radius=RENDER_MASK_DILATION_RADIUS)
 
     # Create a dilated copy for bounding box detection only
     # (keeps panel dividers in the rendered image but merges them for window detection)
@@ -237,10 +270,10 @@ async def outline_windows_from_image(image_url: str) -> dict[str, Any]:
     mask_pixels: list[tuple[int, int, int, int]] = []
 
     for idx, (r, g, b, a) in enumerate(pixels):
-        if mask[idx]:
+        if cleanup_mask[idx]:
             processed_pixels.append(WINDOW_DARK_FILL)
             overlay_pixels.append((r, g, b, 0))
-            mask_pixels.append((0, 255, 0, 255))
+            mask_pixels.append((*resolved_key_color, 255))
         else:
             processed_pixels.append((r, g, b, a))
             overlay_pixels.append((r, g, b, a))
@@ -264,4 +297,5 @@ async def outline_windows_from_image(image_url: str) -> dict[str, Any]:
         "mask_url": _encode_png_data_uri(mask_image),
         "board_width": width,
         "board_height": height,
+        "window_key_color": "#%02X%02X%02X" % resolved_key_color,
     }

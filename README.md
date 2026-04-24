@@ -55,6 +55,20 @@ Expected response:
 docker compose down
 ```
 
+### 5) Reset saved backend data
+
+To delete saved level files and restart the stack from a clean state:
+
+```powershell
+.\scripts\reset-data.ps1
+```
+
+To wipe everything under `data/` instead of only saved levels:
+
+```powershell
+.\scripts\reset-data.ps1 -DeleteAllData
+```
+
 ## Notes
 
 - Frontend requests (`/generate-level`, `/serve-assets`, `/health`) are proxied to the backend.

@@ -37,6 +37,7 @@ class GenerateLevelResponse(BaseModel):
     title: str
     background_url: str
     overlay_url: str
+    window_key_color: str | None = None
     windows: list[WindowConfig]
     sprite_urls: list[str]
     board_width: int
@@ -130,6 +131,7 @@ def _fallback_level_config(theme: str) -> dict[str, Any]:
     ]
     return {
         "title": f"{theme.title()} (Local Test)",
+        "window_key_color": "#00FF00",
         "windows": windows,
         "monster_descriptions": [
             "friendly green blob monster with tiny horns" for _ in windows
@@ -228,12 +230,12 @@ async def generate_level(
         yield f"event: sprite_count\ndata: {json.dumps({'count': len(descriptions), 'monsters': monsters_meta})}\n\n"
 
         # ── Step 2: kick off background generation concurrently ──────────
-        async def _gen_background() -> str:
+        async def _gen_background() -> dict[str, str]:
             try:
                 return await ai.generate_background(request.theme)
             except Exception as exc:
                 logger.warning("Background generation failed: %s", exc)
-                return ""
+                return {"image_url": "", "window_key_color": "#00FF00"}
 
         bg_task: asyncio.Task[str] | None = None
         if request.generate_images:
@@ -253,16 +255,20 @@ async def generate_level(
         # ── Step 4: await background + outline windows ───────────────────
         background_url = ""
         overlay_url = ""
+        window_key_color = str(config.get("window_key_color") or "#00FF00")
         windows: list[dict[str, int]] = []
 
         if bg_task is not None:
-            background_url = await bg_task
+            generated_background = await bg_task
+            background_url = generated_background.get("image_url", "")
+            window_key_color = str(generated_background.get("window_key_color") or window_key_color)
 
         if background_url:
             try:
-                outlined = await outline_windows_from_image(background_url)
+                outlined = await outline_windows_from_image(background_url, window_key_color)
                 background_url = outlined.get("processed_background_url", background_url)
                 overlay_url = outlined.get("overlay_url", "")
+                window_key_color = str(outlined.get("window_key_color") or window_key_color)
                 board_width = _as_int(outlined.get("board_width"), BOARD_WIDTH) or BOARD_WIDTH
                 board_height = _as_int(outlined.get("board_height"), BOARD_HEIGHT) or BOARD_HEIGHT
                 windows = _normalize_windows(
@@ -288,6 +294,7 @@ async def generate_level(
             "title": title,
             "background_url": background_url,
             "overlay_url": overlay_url,
+            "window_key_color": window_key_color,
             "windows": windows,
             "board_width": board_width,
             "board_height": board_height,
@@ -299,6 +306,7 @@ async def generate_level(
             title=title,
             background_url=background_url,
             overlay_url=overlay_url,
+            window_key_color=window_key_color,
             windows=[WindowConfig(**w) for w in windows],
             sprite_urls=sprite_urls,
             board_width=board_width,

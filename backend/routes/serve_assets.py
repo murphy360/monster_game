@@ -18,12 +18,14 @@ logger = logging.getLogger(__name__)
 
 class ServeAssetsRequest(BaseModel):
     image_url: str
+    window_key_color: str | None = None
     character_descriptions: list[str] = []
 
 
 class ServeAssetsResponse(BaseModel):
     windows: list[dict[str, Any]]
     sprite_urls: list[str]
+    window_key_color: str | None = None
     processed_background_url: str | None = None
     overlay_url: str | None = None
     mask_url: str | None = None
@@ -41,7 +43,7 @@ async def serve_assets(
     generate sprite images for each provided character description.
     """
     try:
-        outlined = await outline_windows_from_image(request.image_url)
+        outlined = await outline_windows_from_image(request.image_url, request.window_key_color)
         windows = outlined.get("windows", [])
     except Exception as exc:
         logger.exception("Bounding box extraction failed")
@@ -59,6 +61,7 @@ async def serve_assets(
     return ServeAssetsResponse(
         windows=windows,
         sprite_urls=sprite_urls,
+        window_key_color=outlined.get("window_key_color"),
         processed_background_url=outlined.get("processed_background_url"),
         overlay_url=outlined.get("overlay_url"),
         mask_url=outlined.get("mask_url"),
