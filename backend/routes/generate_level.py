@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from ..ai.base import AIGenerator
@@ -35,6 +35,27 @@ class GenerateLevelResponse(BaseModel):
     sprite_urls: list[str]
 
 
+def _fallback_level_config(theme: str) -> dict[str, Any]:
+    """Return a deterministic level config for local testing when AI fails."""
+    windows: list[dict[str, int]] = [
+        {"id": 1, "x": 120, "y": 130, "width": 140, "height": 170},
+        {"id": 2, "x": 330, "y": 130, "width": 140, "height": 170},
+        {"id": 3, "x": 540, "y": 130, "width": 140, "height": 170},
+        {"id": 4, "x": 750, "y": 130, "width": 140, "height": 170},
+        {"id": 5, "x": 120, "y": 360, "width": 140, "height": 170},
+        {"id": 6, "x": 330, "y": 360, "width": 140, "height": 170},
+        {"id": 7, "x": 540, "y": 360, "width": 140, "height": 170},
+        {"id": 8, "x": 750, "y": 360, "width": 140, "height": 170},
+    ]
+    return {
+        "title": f"{theme.title()} (Local Test)",
+        "windows": windows,
+        "monster_descriptions": [
+            "friendly green blob monster with tiny horns" for _ in windows
+        ],
+    }
+
+
 @router.post("/generate-level", response_model=GenerateLevelResponse)
 async def generate_level(
     request: GenerateLevelRequest,
@@ -44,8 +65,10 @@ async def generate_level(
     try:
         config = await ai.generate_level_config(request.theme)
     except Exception as exc:
-        logger.exception("Failed to generate level config")
-        raise HTTPException(status_code=502, detail=f"AI config generation failed: {exc}") from exc
+        logger.warning(
+            "AI config generation failed; using local fallback level: %s", exc
+        )
+        config = _fallback_level_config(request.theme)
 
     background_url = ""
     sprite_urls: list[str] = []

@@ -1,2 +1,57 @@
-# monster_game
-Touchscreen Monster Mash Game for Cathy
+# Monster Game
+
+Touchscreen Monster Mash game with:
+
+- a FastAPI backend ([backend](backend))
+- a React + Vite frontend ([frontend](frontend))
+
+## Run Locally With Docker (Recommended)
+
+### Prerequisites
+
+- Docker Desktop installed
+- A Gemini API key for AI generation routes
+
+### 1) Configure your API key
+
+Copy [backend/.env.example](backend/.env.example) to [backend/.env](backend/.env) and set your key:
+
+```env
+GEMINI_API_KEY=your_real_key_here
+```
+
+### 2) Build and start both services
+
+From the repo root:
+
+```powershell
+docker compose --env-file backend/.env up -d --build
+```
+
+This starts:
+
+- frontend at `http://localhost:5173`
+- backend at `http://localhost:8001`
+
+### 3) Test health endpoint
+
+```powershell
+curl http://localhost:8001/health
+```
+
+Expected response:
+
+```json
+{"status":"ok"}
+```
+
+### 4) Stop services
+
+```powershell
+docker compose down
+```
+
+## Notes
+
+- Frontend requests (`/generate-level`, `/serve-assets`, `/health`) are proxied to the backend.
+- For code changes, rebuild with `docker compose --env-file backend/.env up --build`.
