@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import GameBoard from './components/GameBoard.jsx'
+import ReviewPage from './components/ReviewPage.jsx'
 import TestPage from './components/TestPage.jsx'
 
 const FALLBACK_BACKGROUND = 'https://placehold.co/1280x720/1a1a2e/ffffff?text=Monster+Game'
@@ -14,6 +15,7 @@ function getSafeDimension(value, fallback) {
 export default function App() {
   const pathname = typeof window !== 'undefined' ? window.location.pathname : '/'
   const isTestPage = pathname === '/test'
+  const isReviewPage = pathname === '/review'
   const [levelData, setLevelData] = useState(null)
   const [spriteUrls, setSpriteUrls] = useState([])
   const [monstersMeta, setMonstersMeta] = useState([]) // [{name, flavor}]
@@ -33,8 +35,8 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (!isTestPage) fetchSavedLevels()
-  }, [isTestPage, fetchSavedLevels])
+    if (!isTestPage && !isReviewPage) fetchSavedLevels()
+  }, [isTestPage, isReviewPage, fetchSavedLevels])
 
   // When all sprites have arrived but the background is still processing,
   // update the status so the user knows what's left.
@@ -139,9 +141,14 @@ export default function App() {
       <header className="app-header">
         <div className="app-title-row">
           <h1>🧟 Cathy's Monster Masher</h1>
+          <nav className="page-nav">
+            <a href="/" className={!isTestPage && !isReviewPage ? 'active' : ''}>Game</a>
+            <a href="/test" className={isTestPage ? 'active' : ''}>Test</a>
+            <a href="/review" className={isReviewPage ? 'active' : ''}>Review</a>
+          </nav>
         </div>
         <div className="controls">
-          {!isTestPage && (
+          {!isTestPage && !isReviewPage && (
             <>
               <input
                 type="text"
@@ -170,6 +177,8 @@ export default function App() {
 
       {isTestPage ? (
         <TestPage debugBounds={showDebugBounds} />
+      ) : isReviewPage ? (
+        <ReviewPage />
       ) : showLevelsList ? (
         <div className="levels-list">
           <h2>Saved Levels</h2>

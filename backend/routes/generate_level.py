@@ -40,6 +40,7 @@ class MonsterMeta(BaseModel):
 
 class GenerateLevelResponse(BaseModel):
     title: str
+    original_background_url: str | None = None
     background_url: str
     overlay_url: str
     window_key_color: str | None = None
@@ -261,7 +262,7 @@ async def generate_level(
                 generation_warnings.append("Background generation failed.")
                 return {"image_url": "", "window_key_color": "#00FF00"}
 
-        bg_task: asyncio.Task[str] | None = None
+        bg_task: asyncio.Task[dict[str, str]] | None = None
         if request.generate_images:
             bg_task = asyncio.create_task(_gen_background())
 
@@ -278,6 +279,7 @@ async def generate_level(
                 yield f"event: sprite\ndata: {json.dumps({'index': idx, 'url': url})}\n\n"
 
         # ── Step 4: await background + outline windows ───────────────────
+        original_background_url = ""
         background_url = ""
         overlay_url = ""
         window_key_color = str(config.get("window_key_color") or "#00FF00")
@@ -286,6 +288,7 @@ async def generate_level(
         if bg_task is not None:
             generated_background = await bg_task
             background_url = generated_background.get("image_url", "")
+            original_background_url = background_url
             window_key_color = str(generated_background.get("window_key_color") or window_key_color)
 
         if background_url:
@@ -322,6 +325,7 @@ async def generate_level(
         # ── Step 5: emit layout so client can show the game board ────────
         layout_payload = {
             "title": title,
+            "original_background_url": original_background_url,
             "background_url": background_url,
             "overlay_url": overlay_url,
             "window_key_color": window_key_color,
@@ -336,6 +340,7 @@ async def generate_level(
         # ── Step 6: save then signal done ────────────────────────────────
         full_response = GenerateLevelResponse(
             title=title,
+            original_background_url=original_background_url,
             background_url=background_url,
             overlay_url=overlay_url,
             window_key_color=window_key_color,
