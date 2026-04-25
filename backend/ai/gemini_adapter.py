@@ -22,7 +22,6 @@ import json
 import logging
 import os
 import re
-import secrets
 from typing import Any
 
 from PIL import Image
@@ -32,7 +31,8 @@ from google import genai
 from google.genai import types as genai_types
 from dotenv import load_dotenv
 
-from .base import AIGenerator, GeneratedBackground
+from .base import AIGenerator, BackgroundAttemptCallback, GeneratedBackground
+from .window_outline import outline_windows_from_image
 
 load_dotenv()
 
@@ -48,15 +48,15 @@ class GeminiAdapter(AIGenerator):
     DEFAULT_IMAGE_MODEL = "gemini-2.5-flash-image"
     BACKGROUND_WIDTH = 1280
     BACKGROUND_HEIGHT = 720
-    BACKGROUND_MAX_RETRIES = 6
+    BACKGROUND_MAX_RETRIES = 2
     WINDOW_KEY_COLORS = (
         "#00FF00",
-        "#FF00FF",
-        "#00FFFF",
-        "#FFFF00",
-        "#FF5F00",
-        "#00A6FF",
+        "#9A2E82",
+        "#FF6A13",
     )
+    KEY_COLOR_TOP_WINDOW_COUNT = 5
+    KEY_COLOR_MODEL_MATCH_BONUS = 15000.0
+    KEY_COLOR_ABSURD_BOX_AREA_RATIO = 0.22
 
     def __init__(self) -> None:
         api_key = os.getenv("GEMINI_API_KEY")
@@ -222,25 +222,147 @@ class GeminiAdapter(AIGenerator):
         return f"data:{mime};base64,{b64}"
 
     @classmethod
-    def _pick_window_key_color(cls) -> str:
-        """Choose a reserved chroma-key color unlikely to appear naturally."""
-        return secrets.choice(cls.WINDOW_KEY_COLORS)
+    def _window_key_color_list_text(cls) -> str:
+        """Return the supported key colors as a compact prompt string."""
+        return ", ".join(cls.WINDOW_KEY_COLORS)
 
-    async def generate_background(self, theme: str) -> GeneratedBackground:
+    async def _choose_key_color_for_theme(self, theme: str) -> tuple[str, str]:
+        """Ask the text model to choose the best mask color from supported options."""
+        options_text = self._window_key_color_list_text()
+        prompt = (
+            "You are choosing a chroma-key mask color for a game background. "
+            f"Theme: {theme}. "
+            f"Allowed colors: {options_text}. "
+            "Choose the single color that is MOST visually distinct from the likely scene palette for this theme. "
+            "Prioritize avoiding likely dominant scene hues. "
+            "Respond with ONLY JSON: {\"window_key_color\": \"#RRGGBB\"}."
+        )
+        response = await self._client.aio.models.generate_content(
+            model=self._text_model,
+            contents=prompt,
+        )
+        parsed = self._safe_load_json(response.text or "", {})
+        model_returned = str(parsed.get("window_key_color", "")).upper()
+        if model_returned in self.WINDOW_KEY_COLORS:
+            return model_returned, model_returned
+        return self.WINDOW_KEY_COLORS[0], model_returned
+
+    async def _select_best_key_color(
+        self,
+        image_bytes: bytes,
+        preferred_key_color: str | None = None,
+    ) -> dict[str, Any]:
+        """Pick the best key color by evaluating all supported candidates on the generated image."""
+        image_data_uri = "data:image/png;base64," + base64.b64encode(image_bytes).decode()
+        image_area = self.BACKGROUND_WIDTH * self.BACKGROUND_HEIGHT
+        best_color = self.WINDOW_KEY_COLORS[0]
+        best_count = 0
+        best_conflict = True
+        best_windows: list[dict[str, Any]] = []
+        best_score = float("-inf")
+        candidate_scores: list[dict[str, Any]] = []
+
+        for color in self.WINDOW_KEY_COLORS:
+            outlined = await outline_windows_from_image(
+                image_data_uri,
+                color,
+                allow_key_fallback=False,
+            )
+            windows = outlined.get("windows", [])
+            window_count = len(windows)
+
+            window_areas = sorted(
+                (
+                    int(win.get("width", 0)) * int(win.get("height", 0))
+                    for win in windows
+                ),
+                reverse=True,
+            )
+            top_window_areas = window_areas[: self.KEY_COLOR_TOP_WINDOW_COUNT]
+            total_area = sum(window_areas)
+            top_window_area = sum(top_window_areas)
+            largest_area = window_areas[0] if window_areas else 0
+            has_absurdly_large_box = largest_area > image_area * self.KEY_COLOR_ABSURD_BOX_AREA_RATIO
+
+            has_conflict = await self._has_key_color_conflict(image_bytes, "image/png", color)
+
+            score = float(top_window_area) - float(largest_area * 0.35)
+            if window_count == 0:
+                score = -2000.0
+            elif window_count < 4 or window_count > 30:
+                score *= 0.6
+
+            if has_absurdly_large_box:
+                score = -10000.0
+
+            if has_conflict:
+                score -= max(5000.0, total_area * 0.75)
+
+            if (
+                preferred_key_color
+                and color == preferred_key_color
+                and window_count > 0
+                and not has_conflict
+                and not has_absurdly_large_box
+            ):
+                score += self.KEY_COLOR_MODEL_MATCH_BONUS
+
+            candidate_scores.append(
+                {
+                    "key_color": color,
+                    "window_count": window_count,
+                    "windows": windows,
+                    "total_area": total_area,
+                    "top_window_area": top_window_area,
+                    "top_window_areas": top_window_areas,
+                    "largest_area": largest_area,
+                    "has_absurdly_large_box": has_absurdly_large_box,
+                    "has_key_color_conflict": has_conflict,
+                    "score": score,
+                }
+            )
+
+            if score > best_score:
+                best_score = score
+                best_color = color
+                best_count = window_count
+                best_conflict = has_conflict
+                best_windows = windows
+
+        return {
+            "selected_key_color": best_color,
+            "selected_window_count": best_count,
+            "selected_has_conflict": best_conflict,
+            "selected_windows": best_windows,
+            "candidate_scores": candidate_scores,
+        }
+
+    async def generate_background(
+        self,
+        theme: str,
+        on_attempt: BackgroundAttemptCallback | None = None,
+    ) -> GeneratedBackground:
         """Generate a background image and return a data-URI plus key-color metadata."""
         try:
             last_fixed: bytes | None = None
-            last_key_color = self._pick_window_key_color()
+            last_key_color = self.WINDOW_KEY_COLORS[0]
+            last_decision: dict[str, Any] = {
+                "supported_key_colors": list(self.WINDOW_KEY_COLORS),
+                "message": "No attempts completed",
+            }
+            key_color_options = self._window_key_color_list_text()
             for attempt in range(1, self.BACKGROUND_MAX_RETRIES + 1):
-                key_color = self._pick_window_key_color()
-                last_key_color = key_color
+                chosen_key_color, model_returned_key_color = await self._choose_key_color_for_theme(theme)
                 prompt = (
                     f"A detailed game background scene for a whack-a-mole monster game. "
                     f"Theme: {theme}. "
                     "The scene must show architecture with clearly visible rectangular windows/openings "
                     "that are EMPTY and unobstructed. "
-                    f"Fill every window/opening interior with SOLID flat color {key_color}. "
-                    f"Do not use {key_color} anywhere else in the image. "
+                    f"Use ONLY this mask color for ALL window/opening interiors: {chosen_key_color}. "
+                    f"Supported mask color list for reference: {key_color_options}. "
+                    "That chosen mask color will be removed in post-processing, so it must appear ONLY inside openings. "
+                    "Do not use the chosen mask color in any other portion of the image. "
+                    "Do not use any of the other supported mask colors anywhere in the image. "
                     "No gradients or texture inside those colored openings. "
                     "Do not include monsters, creatures, people, silhouettes, faces, or characters inside windows/openings. "
                     "Do not include text or UI elements. Cartoon/illustrated style, vivid colours. "
@@ -255,24 +377,67 @@ class GeminiAdapter(AIGenerator):
                 last_fixed = fixed
 
                 has_occupied_windows = await self._has_occupied_windows(fixed, "image/png")
-                has_key_color_conflict = await self._has_key_color_conflict(
+                selection = await self._select_best_key_color(
                     fixed,
-                    "image/png",
-                    key_color,
+                    preferred_key_color=(
+                        model_returned_key_color
+                        if model_returned_key_color in self.WINDOW_KEY_COLORS
+                        else None
+                    ),
                 )
-                if not has_occupied_windows and not has_key_color_conflict:
-                    b64 = base64.b64encode(fixed).decode()
+                selected_key_color = str(selection.get("selected_key_color") or self.WINDOW_KEY_COLORS[0])
+                selected_window_count = int(selection.get("selected_window_count") or 0)
+                has_key_color_conflict = bool(selection.get("selected_has_conflict", True))
+                last_key_color = selected_key_color
+                attempt_image_url = "data:image/png;base64," + base64.b64encode(fixed).decode()
+                last_decision = {
+                    "supported_key_colors": list(self.WINDOW_KEY_COLORS),
+                    "model_returned_key_color": model_returned_key_color,
+                    "model_returned_supported": model_returned_key_color in self.WINDOW_KEY_COLORS,
+                    "prompt_requested_key_color": chosen_key_color,
+                    "selected_key_color": selected_key_color,
+                    "selected_window_count": selected_window_count,
+                    "selected_has_key_color_conflict": has_key_color_conflict,
+                    "has_occupied_windows": has_occupied_windows,
+                    "attempt": attempt,
+                    "candidate_scores": selection.get("candidate_scores", []),
+                }
+
+                if on_attempt is not None:
+                    attempt_status = (
+                        "success"
+                        if (not has_occupied_windows and not has_key_color_conflict and selected_window_count > 0)
+                        else "retrying"
+                    )
+                    try:
+                        await on_attempt(
+                            {
+                                "attempt": attempt,
+                                "max_attempts": self.BACKGROUND_MAX_RETRIES,
+                                "status": attempt_status,
+                                "url": attempt_image_url,
+                                "window_key_color": selected_key_color,
+                                "color_decision": dict(last_decision),
+                            }
+                        )
+                    except Exception as exc:
+                        logger.warning("Attempt callback failed: %s", exc)
+
+                if not has_occupied_windows and not has_key_color_conflict and selected_window_count > 0:
                     return {
-                        "image_url": "data:image/png;base64," + b64,
-                        "window_key_color": key_color,
+                        "image_url": attempt_image_url,
+                        "window_key_color": selected_key_color,
+                        "color_decision": last_decision,
                     }
 
                 logger.warning(
-                    "Background generation attempt %s/%s failed validation (occupied_windows=%s, key_color_conflict=%s); retrying",
+                    "Background generation attempt %s/%s failed validation (occupied_windows=%s, key_color_conflict=%s, selected_key=%s, selected_windows=%s); retrying",
                     attempt,
                     self.BACKGROUND_MAX_RETRIES,
                     has_occupied_windows,
                     has_key_color_conflict,
+                    selected_key_color,
+                    selected_window_count,
                 )
 
             logger.warning(
@@ -282,13 +447,17 @@ class GeminiAdapter(AIGenerator):
             return {
                 "image_url": "",
                 "window_key_color": last_key_color,
+                "color_decision": last_decision,
             }
         except Exception as exc:
             logger.warning("Strict background generation failed; returning no background: %s", exc)
-            key_color = self._pick_window_key_color()
             return {
                 "image_url": "",
-                "window_key_color": key_color,
+                "window_key_color": self.WINDOW_KEY_COLORS[0],
+                "color_decision": {
+                    "supported_key_colors": list(self.WINDOW_KEY_COLORS),
+                    "message": f"Background generation failed: {exc}",
+                },
             }
 
     async def extract_bounding_boxes(self, image_url: str) -> list[dict[str, Any]]:

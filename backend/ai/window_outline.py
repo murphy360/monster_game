@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import colorsys
 import io
 from collections import deque
 from typing import Any
@@ -14,21 +13,13 @@ from PIL import Image
 DEFAULT_KEY_COLOR = (0, 255, 0)
 KEY_COLOR_CANDIDATES = (
     (0, 255, 0),
-    (255, 0, 255),
-    (0, 255, 255),
-    (255, 255, 0),
-    (255, 95, 0),
-    (0, 166, 255),
+    (154, 46, 130),
+    (255, 106, 19),
 )
-COLOR_TOLERANCE = 72
-SOFT_COLOR_DISTANCE_TOLERANCE = 340
-SOFT_HUE_TOLERANCE = 0.09
-SOFT_MIN_SATURATION = 0.25
-SOFT_MIN_VALUE = 0.20
+KEY_COLOR_TOLERANCE = 30
+KEY_COLOR_DISTANCE_MAX = 140
 MIN_COMPONENT_AREA = 500
 MIN_COMPONENT_SIDE = 20
-EDGE_COLOR_TOLERANCE = 96
-EDGE_GROW_PASSES = 2
 RENDER_MASK_DILATION_RADIUS = 2
 WINDOW_BOX_PADDING = 6
 WINDOW_DARK_FILL = (6, 16, 30, 255)
@@ -51,91 +42,41 @@ def _parse_key_color(key_color: str | tuple[int, int, int] | list[int] | None) -
     return tuple(max(0, min(int(channel), 255)) for channel in key_color)
 
 
-def _channel_delta(r: int, g: int, b: int, key_color: tuple[int, int, int]) -> tuple[int, int, int]:
-    """Return absolute RGB channel distance from the configured key color."""
-    kr, kg, kb = key_color
-    return abs(r - kr), abs(g - kg), abs(b - kb)
-
-
-def _hue_distance(a: float, b: float) -> float:
-    """Return the shortest cyclic distance between two HSV hue values."""
-    return min(abs(a - b), 1.0 - abs(a - b))
-
-
-def _is_soft_key_color_match(r: int, g: int, b: int, key_color: tuple[int, int, int]) -> bool:
-    """Return True for shaded/anti-aliased variants of the configured key color."""
-    key_h, key_s, _ = colorsys.rgb_to_hsv(
-        key_color[0] / 255.0,
-        key_color[1] / 255.0,
-        key_color[2] / 255.0,
-    )
-    hue, saturation, value = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
-
-    if saturation < SOFT_MIN_SATURATION or value < SOFT_MIN_VALUE:
-        return False
-    if _hue_distance(hue, key_h) > SOFT_HUE_TOLERANCE:
-        return False
-    if abs(saturation - key_s) > 0.55:
-        return False
-
-    dr, dg, db = _channel_delta(r, g, b, key_color)
-    return dr + dg + db <= SOFT_COLOR_DISTANCE_TOLERANCE
-
-
 def _is_key_color(r: int, g: int, b: int, key_color: tuple[int, int, int]) -> bool:
-    """Return True when a pixel is close to the configured chroma-key color."""
-    dr, dg, db = _channel_delta(r, g, b, key_color)
-    if dr <= COLOR_TOLERANCE and dg <= COLOR_TOLERANCE and db <= COLOR_TOLERANCE:
+    """Return True when a pixel matches key color while rejecting lookalike scene colors.
+
+    We combine broad RGB-distance with key-specific dominance checks so that
+    olive/pastel greens (or similar lookalikes for other keys) do not get
+    treated as chroma mask pixels.
+    """
+    kr, kg, kb = key_color
+    dr = abs(r - kr)
+    dg = abs(g - kg)
+    db = abs(b - kb)
+
+    # Fast path for near-exact matches.
+    if dr <= KEY_COLOR_TOLERANCE and dg <= KEY_COLOR_TOLERANCE and db <= KEY_COLOR_TOLERANCE:
         return True
 
-    return _is_soft_key_color_match(r, g, b, key_color)
+    # Broad distance gate allows anti-aliased/compressed key areas.
+    if (dr * dr + dg * dg + db * db) > (KEY_COLOR_DISTANCE_MAX * KEY_COLOR_DISTANCE_MAX):
+        return False
 
+    # Key-specific dominance rules to reject scene colors that are merely similar.
+    if key_color == (0, 255, 0):
+        # True key green should strongly dominate red/blue channels.
+        return g >= 120 and (g - r) >= 35 and (g - b) >= 35
 
-def _is_key_edge_color(r: int, g: int, b: int, key_color: tuple[int, int, int]) -> bool:
-    """Return True for anti-aliased edge pixels that still match the key color closely."""
-    dr, dg, db = _channel_delta(r, g, b, key_color)
-    return dr + dg + db <= EDGE_COLOR_TOLERANCE * 2
+    if key_color == (154, 46, 130):
+        # Key fuchsia (#9A2E82) requires red/blue dominance over green.
+        return r >= 95 and b >= 85 and abs(r - b) <= 95 and (min(r, b) - g) >= 25
 
+    if key_color == (255, 106, 19):
+        # Key orange needs high red, moderate green, and clearly low blue.
+        return r >= 140 and g >= 55 and g <= 200 and b <= 110 and (r - g) >= 20 and (g - b) >= 15
 
-def _grow_mask_into_key_edges(
-    mask: bytearray,
-    pixels: list[tuple[int, int, int, int]],
-    width: int,
-    height: int,
-    key_color: tuple[int, int, int],
-) -> None:
-    """Dilate the keyed mask into neighboring key-colored edge pixels."""
-    for _ in range(EDGE_GROW_PASSES):
-        additions: list[int] = []
-        for idx in range(width * height):
-            if mask[idx]:
-                continue
-
-            x = idx % width
-            y = idx // width
-            has_masked_neighbor = False
-
-            if x > 0 and mask[idx - 1]:
-                has_masked_neighbor = True
-            elif x < width - 1 and mask[idx + 1]:
-                has_masked_neighbor = True
-            elif y > 0 and mask[idx - width]:
-                has_masked_neighbor = True
-            elif y < height - 1 and mask[idx + width]:
-                has_masked_neighbor = True
-
-            if not has_masked_neighbor:
-                continue
-
-            r, g, b, _ = pixels[idx]
-            if _is_key_edge_color(r, g, b, key_color):
-                additions.append(idx)
-
-        if not additions:
-            return
-
-        for idx in additions:
-            mask[idx] = 1
+    # Fallback for unexpected custom colors.
+    return dr <= KEY_COLOR_TOLERANCE and dg <= KEY_COLOR_TOLERANCE and db <= KEY_COLOR_TOLERANCE
 
 
 async def _decode_image_url(image_url: str) -> tuple[bytes, str]:
@@ -310,18 +251,20 @@ def _build_masks_for_key(
 ) -> tuple[bytearray, bytearray, list[dict[str, int]]]:
     """Build base and cleanup masks plus detected windows for one key color."""
     mask = bytearray(width * height)
+    match_count = 0
     for idx, (r, g, b, _) in enumerate(pixels):
         if _is_key_color(r, g, b, key_color):
             mask[idx] = 1
+            match_count += 1
 
-    _grow_mask_into_key_edges(mask, pixels, width, height, key_color)
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"Color {key_color} matched {match_count} pixels (tolerance={KEY_COLOR_TOLERANCE})")
 
     cleanup_mask = bytearray(mask)
     _dilate_mask(cleanup_mask, width, height, radius=RENDER_MASK_DILATION_RADIUS)
 
-    dilated_mask = bytearray(mask)
-    _dilate_mask(dilated_mask, width, height)
-    windows = _connected_components(dilated_mask, width, height)
+    windows = _connected_components(mask, width, height)
 
     return mask, cleanup_mask, windows
 
@@ -329,6 +272,7 @@ def _build_masks_for_key(
 async def outline_windows_from_image(
     image_url: str,
     key_color: str | tuple[int, int, int] | list[int] | None = None,
+    allow_key_fallback: bool = True,
 ) -> dict[str, Any]:
     """Build deterministic window boxes and visualization layers from chroma-key windows."""
     image_bytes, _ = await _decode_image_url(image_url)
@@ -345,7 +289,7 @@ async def outline_windows_from_image(
     )
 
     best_score = _score_windows(windows, width, height)
-    if best_score <= 0.0:
+    if allow_key_fallback and best_score <= 0.0:
         for candidate in KEY_COLOR_CANDIDATES:
             if candidate == resolved_key_color:
                 continue

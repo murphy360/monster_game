@@ -6,7 +6,7 @@ interface without touching the rest of the application.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, TypedDict
+from typing import Any, Awaitable, Callable, NotRequired, TypedDict
 
 
 class GeneratedBackground(TypedDict):
@@ -14,6 +14,10 @@ class GeneratedBackground(TypedDict):
 
     image_url: str
     window_key_color: str
+    color_decision: NotRequired[dict[str, Any]]
+
+
+BackgroundAttemptCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
 
 class AIGenerator(ABC):
@@ -36,7 +40,11 @@ class AIGenerator(ABC):
         """
 
     @abstractmethod
-    async def generate_background(self, theme: str) -> GeneratedBackground:
+    async def generate_background(
+        self,
+        theme: str,
+        on_attempt: BackgroundAttemptCallback | None = None,
+    ) -> GeneratedBackground:
         """Generate or retrieve a background image for the given theme.
 
         Args:
@@ -45,6 +53,11 @@ class AIGenerator(ABC):
         Returns:
             A dict containing the background image URL/data URI and the
             per-image chroma-key color used for empty windows/openings.
+
+        Args:
+            on_attempt: Optional async callback invoked with per-attempt
+                metadata (including the generated attempt image data URI)
+                as retries progress.
         """
 
     @abstractmethod

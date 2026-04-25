@@ -148,7 +148,20 @@ export default function TestPage({ debugBounds }) {
         <p className="test-copy">
           Upload any background, choose the placeholder key color used in the openings, then run deterministic chroma-key outlining on that exact image.
         </p>
-        <p className="test-copy">Current outlines: {windows.length}</p>
+        {loading && (
+          <div className="test-status">
+            <div className="test-spinner" />
+            <span>Processing image… scanning for key color {windowKeyColor}</span>
+          </div>
+        )}
+        {!loading && windows.length > 0 && (
+          <div className="test-status test-status-success">
+            ✓ Found <strong>{windows.length}</strong> window{windows.length !== 1 ? 's' : ''} using color {windowKeyColor}
+          </div>
+        )}
+        {!loading && backgroundUrl && windows.length === 0 && !error && (
+          <p className="test-copy">No exact-color matches found. Check that your image has pixels in the exact key color.</p>
+        )}
         {error && <p className="error">Error: {error}</p>}
       </section>
 
