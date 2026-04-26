@@ -10,9 +10,9 @@ from typing import Any
 import httpx
 from PIL import Image
 
-DEFAULT_KEY_COLOR = (0, 255, 0)
+DEFAULT_KEY_COLOR = (167, 239, 70)
 KEY_COLOR_CANDIDATES = (
-    (0, 255, 0),
+    (167, 239, 70),
     (154, 46, 130),
     (255, 106, 19),
 )
@@ -22,6 +22,7 @@ MIN_COMPONENT_AREA = 500
 MIN_COMPONENT_SIDE = 20
 RENDER_MASK_DILATION_RADIUS = 2
 WINDOW_BOX_PADDING = 6
+SCORE_MIN_FILL_RATIO = 0.4
 WINDOW_DARK_FILL = (6, 16, 30, 255)
 
 
@@ -63,7 +64,7 @@ def _is_key_color(r: int, g: int, b: int, key_color: tuple[int, int, int]) -> bo
         return False
 
     # Key-specific dominance rules to reject scene colors that are merely similar.
-    if key_color == (0, 255, 0):
+    if key_color in ((167, 239, 70), (0, 255, 0)):
         # True key green should strongly dominate red/blue channels.
         return g >= 120 and (g - r) >= 35 and (g - b) >= 35
 
@@ -211,17 +212,59 @@ def _connected_components(mask: bytearray, width: int, height: int) -> list[dict
         padded_max_x = min(width - 1, max_x + WINDOW_BOX_PADDING)
         padded_max_y = min(height - 1, max_y + WINDOW_BOX_PADDING)
 
+        is_border_touching = (
+            min_x == 0 or min_y == 0
+            or max_x == width - 1 or max_y == height - 1
+        )
+
         boxes.append(
             {
                 "x": padded_min_x,
                 "y": padded_min_y,
                 "width": padded_max_x - padded_min_x + 1,
                 "height": padded_max_y - padded_min_y + 1,
+                "_raw_x": min_x,
+                "_raw_y": min_y,
+                "_raw_width": max_x - min_x + 1,
+                "_raw_height": max_y - min_y + 1,
+                "_pixel_area": area,
+                "_border_touching": is_border_touching,
             }
         )
 
     boxes.sort(key=lambda b: (b["y"], b["x"], b["width"], b["height"]))
     return boxes
+
+
+def _to_scoring_windows(windows: list[dict]) -> list[dict]:
+    """Return tight unpadded bounding boxes for windows that pass fill-ratio check.
+
+    A window passes when the number of key-color pixels inside its tight bounding
+    box is at least SCORE_MIN_FILL_RATIO of the box area.  This excludes sparse
+    or stray matched regions so only solid, uniform window interiors contribute
+    to scoring.
+    """
+    result = []
+    for win in windows:
+        if win.get("_border_touching"):
+            continue
+        raw_w = win.get("_raw_width")
+        raw_h = win.get("_raw_height")
+        pixel_area = win.get("_pixel_area", 0)
+        if raw_w is None or raw_h is None:
+            continue
+        box_area = raw_w * raw_h
+        if box_area <= 0:
+            continue
+        if pixel_area / box_area < SCORE_MIN_FILL_RATIO:
+            continue
+        result.append({
+            "x": win["_raw_x"],
+            "y": win["_raw_y"],
+            "width": raw_w,
+            "height": raw_h,
+        })
+    return result
 
 
 def _score_windows(windows: list[dict[str, int]], width: int, height: int) -> float:
@@ -288,7 +331,8 @@ async def outline_windows_from_image(
         resolved_key_color,
     )
 
-    best_score = _score_windows(windows, width, height)
+    scoring_windows = _to_scoring_windows(windows)
+    best_score = _score_windows(scoring_windows, width, height)
     if allow_key_fallback and best_score <= 0.0:
         for candidate in KEY_COLOR_CANDIDATES:
             if candidate == resolved_key_color:
@@ -300,12 +344,14 @@ async def outline_windows_from_image(
                 height,
                 candidate,
             )
-            candidate_score = _score_windows(candidate_windows, width, height)
+            candidate_scoring = _to_scoring_windows(candidate_windows)
+            candidate_score = _score_windows(candidate_scoring, width, height)
             if candidate_score > best_score:
                 resolved_key_color = candidate
                 mask = candidate_mask
                 cleanup_mask = candidate_cleanup_mask
                 windows = candidate_windows
+                scoring_windows = candidate_scoring
                 best_score = candidate_score
 
     processed_pixels: list[tuple[int, int, int, int]] = []
@@ -331,8 +377,14 @@ async def outline_windows_from_image(
     mask_image = Image.new("RGBA", (width, height))
     mask_image.putdata(mask_pixels)
 
+    clean_windows = [
+        {k: v for k, v in w.items() if not k.startswith("_")}
+        for w in windows
+        if not w.get("_border_touching")
+    ]
     return {
-        "windows": windows,
+        "windows": clean_windows,
+        "scoring_windows": scoring_windows,
         "processed_background_url": _encode_png_data_uri(processed),
         "overlay_url": _encode_png_data_uri(overlay),
         "mask_url": _encode_png_data_uri(mask_image),

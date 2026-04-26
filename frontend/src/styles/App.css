@@ -928,6 +928,17 @@ body {
   overflow-y: auto;
 }
 
+.review-level-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.45rem;
+  align-items: stretch;
+}
+
+.review-level-row.active .review-delete-btn {
+  border-color: rgba(233, 69, 96, 0.72);
+}
+
 .review-level-item {
   border: 1px solid rgba(255, 255, 255, 0.16);
   background: #111b34;
@@ -936,11 +947,34 @@ body {
   padding: 0.55rem 0.65rem;
   text-align: left;
   cursor: pointer;
+  min-width: 0;
 }
 
 .review-level-item.active {
   border-color: #e94560;
   background: #1c2f5f;
+}
+
+.review-delete-btn {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: #31131b;
+  color: #ffd7dd;
+  border-radius: 8px;
+  padding: 0.55rem 0.7rem;
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.review-delete-btn:hover:not(:disabled) {
+  background: #4b1824;
+  border-color: rgba(255, 135, 156, 0.5);
+}
+
+.review-delete-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .review-level-title {
@@ -1048,6 +1082,14 @@ body {
 
 .review-candidate-table tr.selected {
   background: rgba(53, 86, 149, 0.35);
+}
+
+.review-candidate-table tbody tr {
+  cursor: pointer;
+}
+
+.review-candidate-table tbody tr:hover {
+  background: rgba(53, 86, 149, 0.18);
 }
 
 .review-preview-controls {

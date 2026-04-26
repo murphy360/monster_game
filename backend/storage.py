@@ -193,3 +193,34 @@ def update_level(level_id: str, updates: dict[str, Any]) -> dict[str, Any] | Non
     except Exception as exc:
         logger.warning("Could not update level %s: %s", level_id, exc)
         return None
+
+
+def delete_level(level_id: str) -> bool:
+    """Delete a saved level JSON record."""
+    _ensure_dir()
+    safe_id = os.path.basename(level_id)
+    path = os.path.join(LEVELS_DIR, f"{safe_id}.json")
+    if not os.path.isfile(path):
+        return False
+
+    try:
+        with open(path, encoding="utf-8") as fh:
+            record = json.load(fh)
+
+        level_name_key = _record_name_key(record)
+        was_current = bool(record.get("is_current"))
+        os.remove(path)
+
+        if was_current:
+            remaining = [
+                other for _, other in _load_level_records()
+                if _record_name_key(other) == level_name_key
+            ]
+            if remaining:
+                newest = max(remaining, key=_record_sort_key)
+                _set_current_for_name(level_name_key, str(newest.get("id") or ""))
+
+        return True
+    except Exception as exc:
+        logger.warning("Could not delete level %s: %s", level_id, exc)
+        return False

@@ -50,10 +50,15 @@ class GeminiAdapter(AIGenerator):
     BACKGROUND_HEIGHT = 720
     BACKGROUND_MAX_RETRIES = 2
     WINDOW_KEY_COLORS = (
-        "#00FF00",
+        "#A7EF46",
         "#9A2E82",
         "#FF6A13",
     )
+    WINDOW_KEY_COLOR_LABELS = {
+        "#A7EF46": "neon lime",
+        "#9A2E82": "deep magenta",
+        "#FF6A13": "vivid orange",
+    }
     KEY_COLOR_TOP_WINDOW_COUNT = 5
     KEY_COLOR_MODEL_MATCH_BONUS = 15000.0
     KEY_COLOR_ABSURD_BOX_AREA_RATIO = 0.22
@@ -167,28 +172,6 @@ class GeminiAdapter(AIGenerator):
         parsed = self._safe_load_json(response.text or "", {"has_occupied_windows": False})
         return bool(parsed.get("has_occupied_windows", False))
 
-    async def _has_key_color_conflict(
-        self,
-        image_bytes: bytes,
-        mime_type: str,
-        key_color: str,
-    ) -> bool:
-        """Return True when the chosen key color appears outside intended openings."""
-        image_part = genai_types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
-        prompt = (
-            f"Check whether the exact color {key_color}, or obviously near-identical anti-aliased variants, "
-            "appears anywhere outside the interior of intended architectural windows/openings in this scene. "
-            "Treat use of that color on leaves, sky, decorations, trim, reflections, props, ground, or water as a conflict. "
-            "Ignore only thin anti-aliased edge pixels immediately touching a valid window/opening interior. "
-            "Respond with ONLY JSON object: {\"has_key_color_conflict\": true|false}."
-        )
-        response = await self._client.aio.models.generate_content(
-            model=self._text_model,
-            contents=[image_part, prompt],
-        )
-        parsed = self._safe_load_json(response.text or "", {"has_key_color_conflict": False})
-        return bool(parsed.get("has_key_color_conflict", False))
-
     async def _generate_image_bytes(self, prompt: str, aspect_ratio: str = "1:1") -> tuple[bytes, str]:
         """Generate an image and return (raw_bytes, mime_type), routing to the correct API."""
         if self._image_model.lower().startswith("imagen"):
@@ -223,8 +206,33 @@ class GeminiAdapter(AIGenerator):
 
     @classmethod
     def _window_key_color_list_text(cls) -> str:
-        """Return the supported key colors as a compact prompt string."""
-        return ", ".join(cls.WINDOW_KEY_COLORS)
+        """Return supported key colors with text aliases for prompting."""
+        return ", ".join(
+            f"{color} ({cls.WINDOW_KEY_COLOR_LABELS.get(color, 'key color')})"
+            for color in cls.WINDOW_KEY_COLORS
+        )
+
+    @classmethod
+    def _window_key_color_label(cls, color: str) -> str:
+        """Return a human-friendly text alias for a supported key color."""
+        return cls.WINDOW_KEY_COLOR_LABELS.get(color, "key color")
+
+    @classmethod
+    def _normalize_key_color_choice(cls, value: str) -> str | None:
+        """Resolve a model-returned key color that may be hex or text label."""
+        normalized = value.strip().lower()
+        if not normalized:
+            return None
+
+        for color in cls.WINDOW_KEY_COLORS:
+            if normalized == color.lower():
+                return color
+
+        for color, label in cls.WINDOW_KEY_COLOR_LABELS.items():
+            if normalized == label.lower():
+                return color
+
+        return None
 
     async def _choose_key_color_for_theme(self, theme: str) -> tuple[str, str]:
         """Ask the text model to choose the best mask color from supported options."""
@@ -235,17 +243,18 @@ class GeminiAdapter(AIGenerator):
             f"Allowed colors: {options_text}. "
             "Choose the single color that is MOST visually distinct from the likely scene palette for this theme. "
             "Prioritize avoiding likely dominant scene hues. "
-            "Respond with ONLY JSON: {\"window_key_color\": \"#RRGGBB\"}."
+            "Respond with ONLY JSON: {\"window_key_color\": \"#RRGGBB or color label\"}."
         )
         response = await self._client.aio.models.generate_content(
             model=self._text_model,
             contents=prompt,
         )
         parsed = self._safe_load_json(response.text or "", {})
-        model_returned = str(parsed.get("window_key_color", "")).upper()
-        if model_returned in self.WINDOW_KEY_COLORS:
-            return model_returned, model_returned
-        return self.WINDOW_KEY_COLORS[0], model_returned
+        model_returned_raw = str(parsed.get("window_key_color", "")).strip()
+        normalized_choice = self._normalize_key_color_choice(model_returned_raw)
+        if normalized_choice is not None:
+            return normalized_choice, normalized_choice
+        return self.WINDOW_KEY_COLORS[0], model_returned_raw
 
     async def _select_best_key_color(
         self,
@@ -257,7 +266,6 @@ class GeminiAdapter(AIGenerator):
         image_area = self.BACKGROUND_WIDTH * self.BACKGROUND_HEIGHT
         best_color = self.WINDOW_KEY_COLORS[0]
         best_count = 0
-        best_conflict = True
         best_windows: list[dict[str, Any]] = []
         best_score = float("-inf")
         candidate_scores: list[dict[str, Any]] = []
@@ -269,12 +277,13 @@ class GeminiAdapter(AIGenerator):
                 allow_key_fallback=False,
             )
             windows = outlined.get("windows", [])
-            window_count = len(windows)
+            scoring_windows = outlined.get("scoring_windows", [])
+            window_count = len(scoring_windows)
 
             window_areas = sorted(
                 (
                     int(win.get("width", 0)) * int(win.get("height", 0))
-                    for win in windows
+                    for win in scoring_windows
                 ),
                 reverse=True,
             )
@@ -283,8 +292,6 @@ class GeminiAdapter(AIGenerator):
             top_window_area = sum(top_window_areas)
             largest_area = window_areas[0] if window_areas else 0
             has_absurdly_large_box = largest_area > image_area * self.KEY_COLOR_ABSURD_BOX_AREA_RATIO
-
-            has_conflict = await self._has_key_color_conflict(image_bytes, "image/png", color)
 
             score = float(top_window_area) - float(largest_area * 0.35)
             if window_count == 0:
@@ -295,14 +302,10 @@ class GeminiAdapter(AIGenerator):
             if has_absurdly_large_box:
                 score = -10000.0
 
-            if has_conflict:
-                score -= max(5000.0, total_area * 0.75)
-
             if (
                 preferred_key_color
                 and color == preferred_key_color
                 and window_count > 0
-                and not has_conflict
                 and not has_absurdly_large_box
             ):
                 score += self.KEY_COLOR_MODEL_MATCH_BONUS
@@ -311,13 +314,12 @@ class GeminiAdapter(AIGenerator):
                 {
                     "key_color": color,
                     "window_count": window_count,
-                    "windows": windows,
+                    "windows": scoring_windows,
                     "total_area": total_area,
                     "top_window_area": top_window_area,
                     "top_window_areas": top_window_areas,
                     "largest_area": largest_area,
                     "has_absurdly_large_box": has_absurdly_large_box,
-                    "has_key_color_conflict": has_conflict,
                     "score": score,
                 }
             )
@@ -326,13 +328,11 @@ class GeminiAdapter(AIGenerator):
                 best_score = score
                 best_color = color
                 best_count = window_count
-                best_conflict = has_conflict
-                best_windows = windows
+                best_windows = windows  # padded windows kept for gameplay
 
         return {
             "selected_key_color": best_color,
             "selected_window_count": best_count,
-            "selected_has_conflict": best_conflict,
             "selected_windows": best_windows,
             "candidate_scores": candidate_scores,
         }
@@ -353,15 +353,17 @@ class GeminiAdapter(AIGenerator):
             key_color_options = self._window_key_color_list_text()
             for attempt in range(1, self.BACKGROUND_MAX_RETRIES + 1):
                 chosen_key_color, model_returned_key_color = await self._choose_key_color_for_theme(theme)
+                chosen_key_color_label = self._window_key_color_label(chosen_key_color)
                 prompt = (
                     f"A detailed game background scene for a whack-a-mole monster game. "
                     f"Theme: {theme}. "
                     "The scene must show architecture with clearly visible rectangular windows/openings "
                     "that are EMPTY and unobstructed. "
-                    f"Use ONLY this mask color for ALL window/opening interiors: {chosen_key_color}. "
+                    f"Use ONLY this mask color for ALL window/opening interiors: {chosen_key_color} ({chosen_key_color_label}). "
                     f"Supported mask color list for reference: {key_color_options}. "
-                    "That chosen mask color will be removed in post-processing, so it must appear ONLY inside openings. "
-                    "Do not use the chosen mask color in any other portion of the image. "
+                    "That chosen mask color will be removed in post-processing, so it must appear ONLY inside openings AND as a solid outer border. "
+                    f"Paint a solid, unbroken border of exactly {chosen_key_color} ({chosen_key_color_label}) that is 10–15 pixels wide around the entire outer edge of the image. "
+                    "Do not use the chosen mask color anywhere else in the image outside of window interiors and the outer border. "
                     "Do not use any of the other supported mask colors anywhere in the image. "
                     "No gradients or texture inside those colored openings. "
                     "Do not include monsters, creatures, people, silhouettes, faces, or characters inside windows/openings. "
@@ -387,7 +389,6 @@ class GeminiAdapter(AIGenerator):
                 )
                 selected_key_color = str(selection.get("selected_key_color") or self.WINDOW_KEY_COLORS[0])
                 selected_window_count = int(selection.get("selected_window_count") or 0)
-                has_key_color_conflict = bool(selection.get("selected_has_conflict", True))
                 last_key_color = selected_key_color
                 attempt_image_url = "data:image/png;base64," + base64.b64encode(fixed).decode()
                 last_decision = {
@@ -397,7 +398,6 @@ class GeminiAdapter(AIGenerator):
                     "prompt_requested_key_color": chosen_key_color,
                     "selected_key_color": selected_key_color,
                     "selected_window_count": selected_window_count,
-                    "selected_has_key_color_conflict": has_key_color_conflict,
                     "has_occupied_windows": has_occupied_windows,
                     "attempt": attempt,
                     "candidate_scores": selection.get("candidate_scores", []),
@@ -406,7 +406,7 @@ class GeminiAdapter(AIGenerator):
                 if on_attempt is not None:
                     attempt_status = (
                         "success"
-                        if (not has_occupied_windows and not has_key_color_conflict and selected_window_count > 0)
+                        if (not has_occupied_windows and selected_window_count > 0)
                         else "retrying"
                     )
                     try:
@@ -423,7 +423,7 @@ class GeminiAdapter(AIGenerator):
                     except Exception as exc:
                         logger.warning("Attempt callback failed: %s", exc)
 
-                if not has_occupied_windows and not has_key_color_conflict and selected_window_count > 0:
+                if not has_occupied_windows and selected_window_count > 0:
                     return {
                         "image_url": attempt_image_url,
                         "window_key_color": selected_key_color,
@@ -431,11 +431,10 @@ class GeminiAdapter(AIGenerator):
                     }
 
                 logger.warning(
-                    "Background generation attempt %s/%s failed validation (occupied_windows=%s, key_color_conflict=%s, selected_key=%s, selected_windows=%s); retrying",
+                    "Background generation attempt %s/%s failed validation (occupied_windows=%s, selected_key=%s, selected_windows=%s); retrying",
                     attempt,
                     self.BACKGROUND_MAX_RETRIES,
                     has_occupied_windows,
-                    has_key_color_conflict,
                     selected_key_color,
                     selected_window_count,
                 )

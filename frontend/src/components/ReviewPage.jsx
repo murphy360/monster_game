@@ -1,9 +1,19 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
 const REVIEW_DRAFT_KEY = 'monsterGame.reviewDraft'
 const REVIEW_DRAFT_ID = '__draft__'
 
 const FALLBACK_DIMENSION = 1280
+
+function readReviewDraft() {
+  try {
+    const rawDraft = localStorage.getItem(REVIEW_DRAFT_KEY)
+    const draft = rawDraft ? JSON.parse(rawDraft) : null
+    return draft && typeof draft === 'object' ? draft : null
+  } catch (_) {
+    return null
+  }
+}
 
 function safeDimension(value) {
   const parsed = Number(value)
@@ -82,6 +92,7 @@ export default function ReviewPage() {
   const [selectedLevelId, setSelectedLevelId] = useState('')
   const [selectedLevel, setSelectedLevel] = useState(null)
   const [loadingLevels, setLoadingLevels] = useState(false)
+  const [deletingLevelId, setDeletingLevelId] = useState('')
   const [loadingLevelData, setLoadingLevelData] = useState(false)
   const [error, setError] = useState('')
   const [selectedPreviewColor, setSelectedPreviewColor] = useState('')
@@ -93,62 +104,86 @@ export default function ReviewPage() {
   const [previewCandidateRows, setPreviewCandidateRows] = useState([])
   const [previewSaving, setPreviewSaving] = useState(false)
   const [previewSaveNote, setPreviewSaveNote] = useState('')
+  const [selectedCandidateKey, setSelectedCandidateKey] = useState('')
+
+  const buildLevelListWithDraft = useCallback((items) => {
+    const nextLevels = Array.isArray(items) ? items : []
+    const draft = readReviewDraft()
+    if (draft) {
+      return [
+        {
+          id: REVIEW_DRAFT_ID,
+          title: draft.title || 'Current Generation (In Progress)',
+          theme: draft.theme || 'current generation',
+          created_at: draft.created_at || '',
+        },
+        ...nextLevels,
+      ]
+    }
+    return nextLevels
+  }, [])
+
+  const syncDraftState = useCallback(() => {
+    const draft = readReviewDraft()
+
+    setLevels((currentLevels) => {
+      const withoutDraft = currentLevels.filter((level) => level.id !== REVIEW_DRAFT_ID)
+      if (!draft) {
+        return withoutDraft
+      }
+
+      return [
+        {
+          id: REVIEW_DRAFT_ID,
+          title: draft.title || 'Current Generation (In Progress)',
+          theme: draft.theme || 'current generation',
+          created_at: draft.created_at || '',
+        },
+        ...withoutDraft,
+      ]
+    })
+
+    if (selectedLevelId === REVIEW_DRAFT_ID) {
+      setSelectedLevel(draft)
+      setLoadingLevelData(false)
+    }
+
+    if (!draft && selectedLevelId === REVIEW_DRAFT_ID) {
+      setSelectedLevelId((currentLevelId) => (currentLevelId === REVIEW_DRAFT_ID ? '' : currentLevelId))
+    }
+  }, [selectedLevelId])
+
+  const loadLevels = useCallback(async (preferredLevelId = '') => {
+    setLoadingLevels(true)
+    setError('')
+    try {
+      const response = await fetch('/levels')
+      if (!response.ok) {
+        throw new Error(`Could not load saved levels (${response.status})`)
+      }
+
+      const data = await response.json()
+      const withDraft = buildLevelListWithDraft(data)
+      setLevels(withDraft)
+      setSelectedLevelId((currentLevelId) => {
+        if (preferredLevelId && withDraft.some((level) => level.id === preferredLevelId)) {
+          return preferredLevelId
+        }
+        if (currentLevelId && withDraft.some((level) => level.id === currentLevelId)) {
+          return currentLevelId
+        }
+        return withDraft[0]?.id || ''
+      })
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoadingLevels(false)
+    }
+  }, [buildLevelListWithDraft])
 
   useEffect(() => {
-    let cancelled = false
-
-    async function fetchLevels() {
-      setLoadingLevels(true)
-      setError('')
-      try {
-        const response = await fetch('/levels')
-        if (!response.ok) {
-          throw new Error(`Could not load saved levels (${response.status})`)
-        }
-        const data = await response.json()
-        if (cancelled) return
-
-        const nextLevels = Array.isArray(data) ? data : []
-        let withDraft = nextLevels
-        try {
-          const rawDraft = localStorage.getItem(REVIEW_DRAFT_KEY)
-          const draft = rawDraft ? JSON.parse(rawDraft) : null
-          if (draft && typeof draft === 'object') {
-            withDraft = [
-              {
-                id: REVIEW_DRAFT_ID,
-                title: draft.title || 'Current Generation (In Progress)',
-                theme: draft.theme || 'current generation',
-                created_at: draft.created_at || '',
-              },
-              ...nextLevels,
-            ]
-          }
-        } catch (_) {
-          // Ignore invalid local draft payloads.
-        }
-
-        setLevels(withDraft)
-        if (withDraft.length > 0) {
-          setSelectedLevelId(withDraft[0].id)
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err.message)
-        }
-      } finally {
-        if (!cancelled) {
-          setLoadingLevels(false)
-        }
-      }
-    }
-
-    fetchLevels()
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
+    loadLevels()
+  }, [loadLevels])
 
   useEffect(() => {
     let cancelled = false
@@ -160,13 +195,7 @@ export default function ReviewPage() {
     }
 
     if (selectedLevelId === REVIEW_DRAFT_ID) {
-      try {
-        const rawDraft = localStorage.getItem(REVIEW_DRAFT_KEY)
-        const draft = rawDraft ? JSON.parse(rawDraft) : null
-        setSelectedLevel(draft)
-      } catch (_) {
-        setSelectedLevel(null)
-      }
+      setSelectedLevel(readReviewDraft())
       setLoadingLevelData(false)
       return () => {
         cancelled = true
@@ -204,6 +233,32 @@ export default function ReviewPage() {
   }, [selectedLevelId])
 
   useEffect(() => {
+    if (selectedLevelId !== REVIEW_DRAFT_ID) {
+      return undefined
+    }
+
+    syncDraftState()
+
+    const intervalId = window.setInterval(() => {
+      syncDraftState()
+    }, 1000)
+
+    function handleStorage(event) {
+      if (event.key && event.key !== REVIEW_DRAFT_KEY) {
+        return
+      }
+      syncDraftState()
+    }
+
+    window.addEventListener('storage', handleStorage)
+
+    return () => {
+      window.clearInterval(intervalId)
+      window.removeEventListener('storage', handleStorage)
+    }
+  }, [selectedLevelId, syncDraftState])
+
+  useEffect(() => {
     // Reset preview mode when switching levels.
     setSelectedPreviewColor('')
     setPreviewProcessing(false)
@@ -214,6 +269,7 @@ export default function ReviewPage() {
     setPreviewCandidateRows([])
     setPreviewSaving(false)
     setPreviewSaveNote('')
+    setSelectedCandidateKey('')
   }, [selectedLevelId])
 
   const boardWidth = useMemo(
@@ -240,6 +296,10 @@ export default function ReviewPage() {
   const candidateScores = Array.isArray(colorDecision?.candidate_scores)
     ? colorDecision.candidate_scores
     : []
+
+  useEffect(() => {
+    setSelectedCandidateKey(String(colorDecision?.selected_key_color || ''))
+  }, [colorDecision?.selected_key_color, selectedLevelId])
 
   function rgbToHex(r, g, b) {
     const toHex = (value) => Math.max(0, Math.min(255, value)).toString(16).padStart(2, '0')
@@ -268,9 +328,9 @@ export default function ReviewPage() {
         key_color: keyColor,
         score: null,
         window_count: null,
+        windows: [],
         total_area: null,
         largest_area: null,
-        has_key_color_conflict: null,
         preview_status: 'pending',
         ...values,
       })
@@ -316,11 +376,12 @@ export default function ReviewPage() {
       upsertPreviewCandidate(color, {
         score,
         window_count: windowsFromPreview.length,
+        windows: windowsFromPreview,
         total_area: totalArea,
         largest_area: largestArea,
-        has_key_color_conflict: null,
         preview_status: 'ready',
       })
+      setSelectedCandidateKey(color)
     } catch (err) {
       setPreviewHasRun(false)
       setPreviewWindows([])
@@ -358,7 +419,22 @@ export default function ReviewPage() {
   }
 
   const displayCandidates = [...candidateScores, ...previewCandidateRows]
-  const displayWindows = previewHasRun ? previewWindows : reviewWindows
+  const activeCandidate = displayCandidates.find(
+    (candidate) => String(candidate?.key_color || '').toUpperCase() === String(selectedCandidateKey || '').toUpperCase(),
+  ) || null
+  const activeCandidateWindows = Array.isArray(activeCandidate?.windows) ? activeCandidate.windows : []
+  const highlightedWindows = activeCandidateWindows.length > 0
+    ? [...activeCandidateWindows]
+      .sort((left, right) => {
+        const leftArea = Number(left?.width || 0) * Number(left?.height || 0)
+        const rightArea = Number(right?.width || 0) * Number(right?.height || 0)
+        return rightArea - leftArea
+      })
+      .slice(0, 5)
+    : []
+  const displayWindows = highlightedWindows.length > 0
+    ? highlightedWindows
+    : (previewHasRun ? previewWindows : reviewWindows)
   const activePreviewCandidate = previewCandidateRows.find(
     (row) => String(row?.key_color || '').toUpperCase() === String(selectedPreviewColor || '').toUpperCase(),
   ) || null
@@ -394,9 +470,9 @@ export default function ReviewPage() {
           key_color: selectedPreviewColor,
           score: activePreviewCandidate.score,
           window_count: activePreviewCandidate.window_count,
+          windows: activePreviewCandidate.windows,
           total_area: activePreviewCandidate.total_area,
           largest_area: activePreviewCandidate.largest_area,
-          has_key_color_conflict: activePreviewCandidate.has_key_color_conflict,
         }
         : null
 
@@ -429,6 +505,51 @@ export default function ReviewPage() {
     }
   }
 
+  async function handleDeleteLevel(level) {
+    if (!level?.id || deletingLevelId) {
+      return
+    }
+
+    const isDraft = level.id === REVIEW_DRAFT_ID
+    const confirmed = window.confirm(
+      isDraft
+        ? 'Delete the local draft from the Review Portal?'
+        : `Delete saved level "${level.title || 'Untitled'}"?`,
+    )
+    if (!confirmed) {
+      return
+    }
+
+    setDeletingLevelId(level.id)
+    setError('')
+
+    try {
+      if (isDraft) {
+        localStorage.removeItem(REVIEW_DRAFT_KEY)
+      } else {
+        const response = await fetch(`/levels/${level.id}`, { method: 'DELETE' })
+        if (!response.ok) {
+          throw new Error(`Could not delete level ${level.id} (${response.status})`)
+        }
+      }
+
+      const currentIndex = levels.findIndex((entry) => entry.id === level.id)
+      const fallbackLevel = currentIndex >= 0
+        ? (levels[currentIndex + 1] || levels[currentIndex - 1] || null)
+        : null
+
+      if (selectedLevelId === level.id) {
+        setSelectedLevel(null)
+      }
+
+      await loadLevels(fallbackLevel?.id || '')
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setDeletingLevelId('')
+    }
+  }
+
   return (
     <div className="review-page">
       <aside className="review-sidebar">
@@ -437,23 +558,37 @@ export default function ReviewPage() {
         {!loadingLevels && levels.length === 0 && <p className="review-empty">No saved levels yet.</p>}
         <div className="review-level-list">
           {levels.map((level) => (
-            <button
+            <div
               key={level.id}
-              type="button"
-              className={`review-level-item ${selectedLevelId === level.id ? 'active' : ''}`}
-              onClick={() => setSelectedLevelId(level.id)}
+              className={`review-level-row ${selectedLevelId === level.id ? 'active' : ''}`}
             >
-              <span className="review-level-title">{level.title || 'Untitled'}</span>
-              <span className="review-level-meta">
-                {level.theme || 'unknown theme'}
-                {typeof level.version === 'number' ? ` | v${level.version}` : ''}
-                {typeof level.versions_count === 'number' && level.versions_count > 1 ? ` (${level.versions_count} versions)` : ''}
-                {' | '}
-                {level.updated_at
-                  ? new Date(level.updated_at).toLocaleString()
-                  : (level.created_at ? new Date(level.created_at).toLocaleString() : 'unknown date')}
-              </span>
-            </button>
+              <button
+                type="button"
+                className={`review-level-item ${selectedLevelId === level.id ? 'active' : ''}`}
+                onClick={() => setSelectedLevelId(level.id)}
+              >
+                <span className="review-level-title">{level.title || 'Untitled'}</span>
+                <span className="review-level-meta">
+                  {level.theme || 'unknown theme'}
+                  {typeof level.version === 'number' ? ` | v${level.version}` : ''}
+                  {typeof level.versions_count === 'number' && level.versions_count > 1 ? ` (${level.versions_count} versions)` : ''}
+                  {' | '}
+                  {level.updated_at
+                    ? new Date(level.updated_at).toLocaleString()
+                    : (level.created_at ? new Date(level.created_at).toLocaleString() : 'unknown date')}
+                </span>
+              </button>
+              <button
+                type="button"
+                className="review-delete-btn"
+                onClick={() => handleDeleteLevel(level)}
+                disabled={deletingLevelId === level.id}
+                aria-label={`Delete ${level.title || 'level'}`}
+                title={level.id === REVIEW_DRAFT_ID ? 'Delete draft' : 'Delete saved level'}
+              >
+                {deletingLevelId === level.id ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
           ))}
         </div>
       </aside>
@@ -517,7 +652,12 @@ export default function ReviewPage() {
                   )}
                   {typeof colorDecision.selected_window_count === 'number' && (
                     <p className="review-color-detail">
-                      Selected color window count: {colorDecision.selected_window_count} | conflict: {String(!!colorDecision.selected_has_key_color_conflict)}
+                      Selected color window count: {colorDecision.selected_window_count}
+                    </p>
+                  )}
+                  {highlightedWindows.length > 0 && activeCandidate && (
+                    <p className="review-color-detail">
+                      Showing top five windows for <ColorChip color={activeCandidate.key_color} />
                     </p>
                   )}
 
@@ -566,15 +706,18 @@ export default function ReviewPage() {
                             <th>Windows</th>
                             <th>Total Area</th>
                             <th>Largest Area</th>
-                            <th>Conflict</th>
                           </tr>
                         </thead>
                         <tbody>
                           {displayCandidates.map((candidate, index) => {
                             const keyColor = String(candidate?.key_color || '')
-                            const isSelected = keyColor && keyColor === colorDecision.selected_key_color
+                            const isSelected = keyColor && keyColor.toUpperCase() === String(selectedCandidateKey || '').toUpperCase()
                             return (
-                              <tr key={`candidate-${keyColor || index}`} className={isSelected ? 'selected' : ''}>
+                              <tr
+                                key={`candidate-${keyColor || index}`}
+                                className={isSelected ? 'selected' : ''}
+                                onClick={() => setSelectedCandidateKey(keyColor)}
+                              >
                                 <td>
                                   <ColorChip color={keyColor} />
                                   {candidate?.preview_status && <span className="review-preview-badge">preview</span>}
@@ -583,11 +726,6 @@ export default function ReviewPage() {
                                 <td>{candidate?.window_count ?? 'n/a'}</td>
                                 <td>{candidate?.total_area ?? 'n/a'}</td>
                                 <td>{candidate?.largest_area ?? 'n/a'}</td>
-                                <td>
-                                  {typeof candidate?.has_key_color_conflict === 'boolean'
-                                    ? String(candidate.has_key_color_conflict)
-                                    : 'n/a'}
-                                </td>
                               </tr>
                             )
                           })}

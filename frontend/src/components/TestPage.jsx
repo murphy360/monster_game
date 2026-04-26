@@ -29,7 +29,7 @@ export default function TestPage({ debugBounds }) {
   const [displayBackgroundUrl, setDisplayBackgroundUrl] = useState('')
   const [overlayUrl, setOverlayUrl] = useState('')
   const [maskUrl, setMaskUrl] = useState('')
-  const [windowKeyColor, setWindowKeyColor] = useState('#00FF00')
+  const [windowKeyColor, setWindowKeyColor] = useState('#A7EF46')
   const [boardWidth, setBoardWidth] = useState(1280)
   const [boardHeight, setBoardHeight] = useState(720)
   const [windows, setWindows] = useState([])
@@ -177,13 +177,13 @@ export default function TestPage({ debugBounds }) {
             />
           </div>
           <div className="step-card">
-            <h3>Step 2: Green Mask</h3>
+            <h3>Step 2: Key-Color Mask</h3>
             {maskUrl ? (
               <div
                 className="step-preview"
                 style={{ aspectRatio: `${boardWidth} / ${boardHeight}` }}
               >
-                <img src={maskUrl} alt="Detected green mask" className="step-image" />
+                <img src={maskUrl} alt="Detected key-color mask" className="step-image" />
                 <div className="step-boxes-layer">
                   {windows.map((win, idx) => (
                     <div

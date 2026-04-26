@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from ..storage import get_level, list_levels, update_level
+from ..storage import delete_level, get_level, list_levels, update_level
 
 router = APIRouter()
 
@@ -54,6 +54,18 @@ async def load_level(level_id: str) -> Any:
     return record
 
 
+@router.delete("/levels/{level_id}", status_code=204)
+async def remove_level(level_id: str) -> None:
+    """Delete a saved level."""
+    existing = get_level(level_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Level not found")
+
+    deleted = delete_level(level_id)
+    if not deleted:
+        raise HTTPException(status_code=500, detail="Failed to delete level")
+
+
 @router.put("/levels/{level_id}/apply-preview")
 async def apply_preview(level_id: str, payload: ApplyPreviewRequest) -> Any:
     """Persist preview-derived mask output onto an existing saved level."""
@@ -87,7 +99,6 @@ async def apply_preview(level_id: str, payload: ApplyPreviewRequest) -> Any:
             "final_mask_removal_color": key_color,
             "selected_windows": windows,
             "selected_window_count": len(windows),
-            "selected_has_key_color_conflict": False,
             "candidate_scores": candidate_scores,
             "manual_preview_applied": True,
         }

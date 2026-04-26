@@ -157,7 +157,7 @@ def _fallback_level_config(theme: str) -> dict[str, Any]:
     ]
     return {
         "title": f"{theme.title()} (Local Test)",
-        "window_key_color": "#00FF00",
+        "window_key_color": "#A7EF46",
         "windows": windows,
         "monster_descriptions": [
             "friendly green blob monster with tiny horns" for _ in windows
@@ -304,7 +304,7 @@ async def generate_level(
             except Exception as exc:
                 logger.warning("Background generation failed: %s", exc)
                 generation_warnings.append("Background generation failed.")
-                return {"image_url": "", "window_key_color": "#00FF00"}
+                return {"image_url": "", "window_key_color": "#A7EF46"}
 
         bg_task: asyncio.Task[dict[str, str]] | None = None
         if request.generate_images:
@@ -378,7 +378,7 @@ async def generate_level(
         original_background_url = ""
         background_url = ""
         overlay_url = ""
-        window_key_color = str(config.get("window_key_color") or "#00FF00")
+        window_key_color = str(config.get("window_key_color") or "#A7EF46")
         color_decision: dict[str, Any] | None = None
         windows: list[dict[str, int]] = []
 
@@ -390,7 +390,7 @@ async def generate_level(
                 # Use last streamed background attempt so we can still finalize/save a reviewable level.
                 generated_background = {
                     "image_url": (latest_background_attempt or {}).get("url", ""),
-                    "window_key_color": (latest_background_attempt or {}).get("window_key_color", "#00FF00"),
+                    "window_key_color": (latest_background_attempt or {}).get("window_key_color", "#A7EF46"),
                     "color_decision": (latest_background_attempt or {}).get("color_decision", {}),
                 }
                 generation_warnings.append("Background validation timed out; finalized from latest attempt image.")
