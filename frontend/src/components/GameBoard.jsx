@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import WindowNode from './WindowNode.jsx'
 
 const ROUND_DURATION_SECONDS = 60
-const VISIBLE_DURATION_MS = 2000
+const VISIBLE_DURATION_MS = 4000
 const SPAWN_DELAY_MIN_MS = 160
 const SPAWN_DELAY_MAX_MS = 1800
 const MISS_MARKER_MS = 500
