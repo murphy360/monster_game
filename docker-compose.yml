@@ -7,7 +7,7 @@ services:
       - GEMINI_TEXT_MODEL=${GEMINI_TEXT_MODEL:-gemini-2.5-flash}
       - GEMINI_IMAGE_MODEL=${GEMINI_IMAGE_MODEL:-gemini-2.5-flash-image}
     ports:
-      - "8001:8000"
+      - "${BACKEND_HOST_PORT:-8001}:8000"
     volumes:
       - ./data:/data
 
@@ -18,6 +18,6 @@ services:
     environment:
       - VITE_API_PROXY_TARGET=http://backend:8000
     ports:
-      - "5173:5173"
+      - "${FRONTEND_HOST_PORT:-5173}:5173"
     depends_on:
       - backend

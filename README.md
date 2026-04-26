@@ -22,6 +22,10 @@ GEMINI_API_KEY=your_real_key_here
 # Optional model overrides
 GEMINI_TEXT_MODEL=gemini-2.5-flash
 GEMINI_IMAGE_MODEL=gemini-2.5-flash-image
+
+# Optional host port overrides for Docker deployments
+BACKEND_HOST_PORT=8001
+FRONTEND_HOST_PORT=5173
 ```
 
 ### 2) Build and start both services
@@ -36,6 +40,9 @@ This starts:
 
 - frontend at `http://localhost:5173`
 - backend at `http://localhost:8001`
+
+If those host ports are already in use on a server, set `BACKEND_HOST_PORT` and/or
+`FRONTEND_HOST_PORT` in `.env` before running `docker compose`.
 
 ### 3) Test health endpoint
 

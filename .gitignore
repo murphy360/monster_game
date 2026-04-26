@@ -35,3 +35,6 @@ Thumbs.db
 
 # Generated level configs
 data/levels/*.json
+
+# Local deployment helpers
+scripts/deploy-dontpanic2.ps1
