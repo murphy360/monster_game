@@ -26,6 +26,11 @@ class ServeAssetsResponse(BaseModel):
     windows: list[dict[str, Any]]
     sprite_urls: list[str]
     window_key_color: str | None = None
+    candidate_key_colors: list[str] = []
+    boundary_color: str | None = None
+    boundary_crop_applied: bool = False
+    boundary_crop_box: dict[str, int] | None = None
+    cropped_background_url: str | None = None
     processed_background_url: str | None = None
     overlay_url: str | None = None
     mask_url: str | None = None
@@ -62,6 +67,11 @@ async def serve_assets(
         windows=windows,
         sprite_urls=sprite_urls,
         window_key_color=outlined.get("window_key_color"),
+        candidate_key_colors=outlined.get("candidate_key_colors") or [],
+        boundary_color=outlined.get("boundary_color"),
+        boundary_crop_applied=bool(outlined.get("boundary_crop_applied")),
+        boundary_crop_box=outlined.get("boundary_crop_box") or None,
+        cropped_background_url=outlined.get("cropped_background_url"),
         processed_background_url=outlined.get("processed_background_url"),
         overlay_url=outlined.get("overlay_url"),
         mask_url=outlined.get("mask_url"),

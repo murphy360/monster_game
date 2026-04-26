@@ -27,6 +27,7 @@ class ApplyPreviewRequest(BaseModel):
     window_key_color: str
     windows: list[dict[str, Any]]
     processed_background_url: str
+    cropped_background_url: str | None = None
     preview_candidate: dict[str, Any] | None = None
 
 
@@ -76,6 +77,7 @@ async def apply_preview(level_id: str, payload: ApplyPreviewRequest) -> Any:
     key_color = _normalize_hex_color(payload.window_key_color)
     windows = payload.windows if isinstance(payload.windows, list) else []
     processed_background_url = str(payload.processed_background_url or "")
+    cropped_background_url = str(payload.cropped_background_url or "")
     if not key_color or not processed_background_url:
         raise HTTPException(status_code=400, detail="window_key_color and processed_background_url are required")
 
@@ -108,6 +110,7 @@ async def apply_preview(level_id: str, payload: ApplyPreviewRequest) -> Any:
         level_id,
         {
             "window_key_color": key_color,
+            "cropped_background_url": cropped_background_url or current.get("cropped_background_url", ""),
             "background_url": processed_background_url,
             "windows": windows,
             "color_decision": color_decision,

@@ -350,7 +350,14 @@ export default function App() {
             const processed = await processedRes.json()
             normalized = {
               ...data,
+              cropped_background_url: processed?.cropped_background_url || data.cropped_background_url,
               background_url: processed?.processed_background_url || data.background_url,
+              board_width: Number.isFinite(Number(processed?.board_width)) && Number(processed.board_width) > 0
+                ? Number(processed.board_width)
+                : data.board_width,
+              board_height: Number.isFinite(Number(processed?.board_height)) && Number(processed.board_height) > 0
+                ? Number(processed.board_height)
+                : data.board_height,
               // Keep saved windows if present; otherwise use newly outlined windows.
               windows: Array.isArray(data?.windows) && data.windows.length > 0
                 ? data.windows

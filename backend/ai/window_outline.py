@@ -24,6 +24,12 @@ RENDER_MASK_DILATION_RADIUS = 2
 WINDOW_BOX_PADDING = 6
 SCORE_MIN_FILL_RATIO = 0.4
 WINDOW_DARK_FILL = (6, 16, 30, 255)
+BOUNDARY_SAMPLE_BAND = 12
+BOUNDARY_COLOR_BUCKET_SIZE = 16
+BOUNDARY_COLOR_TOLERANCE = 28
+BOUNDARY_LINE_MATCH_RATIO = 0.93
+BOUNDARY_MIN_CROP_PIXELS = 3
+BOUNDARY_MAX_CROP_RATIO = 0.18
 
 
 def _parse_key_color(key_color: str | tuple[int, int, int] | list[int] | None) -> tuple[int, int, int]:
@@ -105,6 +111,178 @@ def _encode_png_data_uri(image: Image.Image) -> str:
 def _key_color_hex(key_color: tuple[int, int, int]) -> str:
     """Encode a key color tuple as #RRGGBB."""
     return "#%02X%02X%02X" % key_color
+
+
+def _is_color_match(
+    rgb: tuple[int, int, int],
+    target: tuple[int, int, int],
+    tolerance: int = BOUNDARY_COLOR_TOLERANCE,
+) -> bool:
+    """Return True when a color is within per-channel tolerance of target."""
+    return all(abs(channel - reference) <= tolerance for channel, reference in zip(rgb, target))
+
+
+def _estimate_boundary_color(image: Image.Image) -> tuple[int, int, int] | None:
+    """Estimate dominant color in the outer border area, if one exists."""
+    width, height = image.size
+    if width < 8 or height < 8:
+        return None
+
+    sample_band = max(1, min(BOUNDARY_SAMPLE_BAND, width // 6, height // 6))
+    pixels = image.load()
+
+    buckets: dict[tuple[int, int, int], list[tuple[int, int, int]]] = {}
+
+    def _add_sample(x: int, y: int) -> None:
+        r, g, b, _ = pixels[x, y]
+        key = (r // BOUNDARY_COLOR_BUCKET_SIZE, g // BOUNDARY_COLOR_BUCKET_SIZE, b // BOUNDARY_COLOR_BUCKET_SIZE)
+        buckets.setdefault(key, []).append((r, g, b))
+
+    for y in range(sample_band):
+        for x in range(width):
+            _add_sample(x, y)
+            _add_sample(x, height - 1 - y)
+    for x in range(sample_band):
+        for y in range(height):
+            _add_sample(x, y)
+            _add_sample(width - 1 - x, y)
+
+    if not buckets:
+        return None
+
+    dominant_bucket = max(buckets.items(), key=lambda entry: len(entry[1]))[1]
+    if not dominant_bucket:
+        return None
+
+    count = len(dominant_bucket)
+    avg_r = sum(pixel[0] for pixel in dominant_bucket) // count
+    avg_g = sum(pixel[1] for pixel in dominant_bucket) // count
+    avg_b = sum(pixel[2] for pixel in dominant_bucket) // count
+    candidate = (avg_r, avg_g, avg_b)
+
+    def _edge_match_ratio(edge: str) -> float:
+        total = 0
+        matched = 0
+        if edge in ("top", "bottom"):
+            y = 0 if edge == "top" else height - 1
+            for x in range(width):
+                total += 1
+                r, g, b, _ = pixels[x, y]
+                if _is_color_match((r, g, b), candidate):
+                    matched += 1
+        else:
+            x = 0 if edge == "left" else width - 1
+            for y in range(height):
+                total += 1
+                r, g, b, _ = pixels[x, y]
+                if _is_color_match((r, g, b), candidate):
+                    matched += 1
+        return matched / max(1, total)
+
+    ratios = [_edge_match_ratio(edge) for edge in ("top", "right", "bottom", "left")]
+    if min(ratios) < 0.6:
+        return None
+
+    return candidate
+
+
+def _measure_boundary_thickness(
+    image: Image.Image,
+    boundary_color: tuple[int, int, int],
+) -> tuple[int, int, int, int]:
+    """Measure how many solid-color boundary pixels exist on each edge."""
+    width, height = image.size
+    pixels = image.load()
+
+    max_scan_x = max(1, int(width * BOUNDARY_MAX_CROP_RATIO))
+    max_scan_y = max(1, int(height * BOUNDARY_MAX_CROP_RATIO))
+
+    def _line_ratio_top(y: int) -> float:
+        matched = 0
+        for x in range(width):
+            r, g, b, _ = pixels[x, y]
+            if _is_color_match((r, g, b), boundary_color):
+                matched += 1
+        return matched / max(1, width)
+
+    def _line_ratio_bottom(y: int) -> float:
+        matched = 0
+        yy = height - 1 - y
+        for x in range(width):
+            r, g, b, _ = pixels[x, yy]
+            if _is_color_match((r, g, b), boundary_color):
+                matched += 1
+        return matched / max(1, width)
+
+    def _line_ratio_left(x: int) -> float:
+        matched = 0
+        for y in range(height):
+            r, g, b, _ = pixels[x, y]
+            if _is_color_match((r, g, b), boundary_color):
+                matched += 1
+        return matched / max(1, height)
+
+    def _line_ratio_right(x: int) -> float:
+        matched = 0
+        xx = width - 1 - x
+        for y in range(height):
+            r, g, b, _ = pixels[xx, y]
+            if _is_color_match((r, g, b), boundary_color):
+                matched += 1
+        return matched / max(1, height)
+
+    top = 0
+    for y in range(max_scan_y):
+        if _line_ratio_top(y) >= BOUNDARY_LINE_MATCH_RATIO:
+            top += 1
+        else:
+            break
+
+    bottom = 0
+    for y in range(max_scan_y):
+        if _line_ratio_bottom(y) >= BOUNDARY_LINE_MATCH_RATIO:
+            bottom += 1
+        else:
+            break
+
+    left = 0
+    for x in range(max_scan_x):
+        if _line_ratio_left(x) >= BOUNDARY_LINE_MATCH_RATIO:
+            left += 1
+        else:
+            break
+
+    right = 0
+    for x in range(max_scan_x):
+        if _line_ratio_right(x) >= BOUNDARY_LINE_MATCH_RATIO:
+            right += 1
+        else:
+            break
+
+    return left, top, right, bottom
+
+
+def _crop_boundary(
+    image: Image.Image,
+    boundary_color: tuple[int, int, int] | None,
+) -> tuple[Image.Image, dict[str, int], bool]:
+    """Crop uniform image boundary and return cropped image plus crop box metadata."""
+    if boundary_color is None:
+        return image, {"left": 0, "top": 0, "right": 0, "bottom": 0}, False
+
+    width, height = image.size
+    left, top, right, bottom = _measure_boundary_thickness(image, boundary_color)
+    minimum = min(left, top, right, bottom)
+    if minimum < BOUNDARY_MIN_CROP_PIXELS:
+        return image, {"left": 0, "top": 0, "right": 0, "bottom": 0}, False
+
+    crop_width = width - left - right
+    crop_height = height - top - bottom
+    if crop_width < 32 or crop_height < 32:
+        return image, {"left": 0, "top": 0, "right": 0, "bottom": 0}, False
+
+    cropped = image.crop((left, top, width - right, height - bottom))
+    return cropped, {"left": left, "top": top, "right": right, "bottom": bottom}, True
 
 
 def _dilate_mask(mask: bytearray, width: int, height: int, radius: int = 3) -> None:
@@ -319,10 +497,21 @@ async def outline_windows_from_image(
 ) -> dict[str, Any]:
     """Build deterministic window boxes and visualization layers from chroma-key windows."""
     image_bytes, _ = await _decode_image_url(image_url)
-    base = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+    source_image = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+    boundary_color = _estimate_boundary_color(source_image)
+    base, crop_box, crop_applied = _crop_boundary(source_image, boundary_color)
+    cropped_background_url = _encode_png_data_uri(base)
+
     width, height = base.size
     pixels = list(base.getdata())
     resolved_key_color = _parse_key_color(key_color)
+
+    candidate_colors: list[tuple[int, int, int]] = [resolved_key_color]
+    if boundary_color is not None and boundary_color not in candidate_colors:
+        candidate_colors.append(boundary_color)
+    for candidate in KEY_COLOR_CANDIDATES:
+        if candidate not in candidate_colors:
+            candidate_colors.append(candidate)
 
     mask, cleanup_mask, windows = _build_masks_for_key(
         pixels,
@@ -334,7 +523,7 @@ async def outline_windows_from_image(
     scoring_windows = _to_scoring_windows(windows)
     best_score = _score_windows(scoring_windows, width, height)
     if allow_key_fallback and best_score <= 0.0:
-        for candidate in KEY_COLOR_CANDIDATES:
+        for candidate in candidate_colors:
             if candidate == resolved_key_color:
                 continue
 
@@ -385,10 +574,15 @@ async def outline_windows_from_image(
     return {
         "windows": clean_windows,
         "scoring_windows": scoring_windows,
+        "cropped_background_url": cropped_background_url,
         "processed_background_url": _encode_png_data_uri(processed),
         "overlay_url": _encode_png_data_uri(overlay),
         "mask_url": _encode_png_data_uri(mask_image),
         "board_width": width,
         "board_height": height,
         "window_key_color": _key_color_hex(resolved_key_color),
+        "boundary_color": _key_color_hex(boundary_color) if boundary_color is not None else None,
+        "boundary_crop_applied": crop_applied,
+        "boundary_crop_box": crop_box,
+        "candidate_key_colors": [_key_color_hex(color) for color in candidate_colors],
     }

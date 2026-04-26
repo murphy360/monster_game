@@ -100,6 +100,9 @@ export default function ReviewPage() {
   const [previewError, setPreviewError] = useState('')
   const [previewHasRun, setPreviewHasRun] = useState(false)
   const [previewWindows, setPreviewWindows] = useState([])
+  const [previewBoardWidth, setPreviewBoardWidth] = useState(0)
+  const [previewBoardHeight, setPreviewBoardHeight] = useState(0)
+  const [previewCroppedBackgroundUrl, setPreviewCroppedBackgroundUrl] = useState('')
   const [previewProcessedBackgroundUrl, setPreviewProcessedBackgroundUrl] = useState('')
   const [previewCandidateRows, setPreviewCandidateRows] = useState([])
   const [previewSaving, setPreviewSaving] = useState(false)
@@ -265,6 +268,9 @@ export default function ReviewPage() {
     setPreviewError('')
     setPreviewHasRun(false)
     setPreviewWindows([])
+    setPreviewBoardWidth(0)
+    setPreviewBoardHeight(0)
+    setPreviewCroppedBackgroundUrl('')
     setPreviewProcessedBackgroundUrl('')
     setPreviewCandidateRows([])
     setPreviewSaving(false)
@@ -290,9 +296,18 @@ export default function ReviewPage() {
     ? colorDecision.selected_windows
     : []
   const reviewWindows = windows.length > 0 ? windows : selectedWindows
-  const supportedKeyColors = Array.isArray(colorDecision?.supported_key_colors)
-    ? colorDecision.supported_key_colors
-    : []
+  const supportedKeyColors = (() => {
+    if (Array.isArray(colorDecision?.supported_key_colors) && colorDecision.supported_key_colors.length > 0) {
+      return colorDecision.supported_key_colors
+    }
+    if (Array.isArray(selectedLevel?.candidate_key_colors) && selectedLevel.candidate_key_colors.length > 0) {
+      return selectedLevel.candidate_key_colors
+    }
+    if (Array.isArray(colorDecision?.candidate_key_colors) && colorDecision.candidate_key_colors.length > 0) {
+      return colorDecision.candidate_key_colors
+    }
+    return []
+  })()
   const candidateScores = Array.isArray(colorDecision?.candidate_scores)
     ? colorDecision.candidate_scores
     : []
@@ -368,10 +383,17 @@ export default function ReviewPage() {
         (largest, win) => Math.max(largest, Number(win.width || 0) * Number(win.height || 0)),
         0,
       )
-      const score = calculatePreviewScore(windowsFromPreview, boardWidth, boardHeight)
+      const previewWidth = Number(payload.board_width)
+      const previewHeight = Number(payload.board_height)
+      const resolvedPreviewWidth = Number.isFinite(previewWidth) && previewWidth > 0 ? previewWidth : boardWidth
+      const resolvedPreviewHeight = Number.isFinite(previewHeight) && previewHeight > 0 ? previewHeight : boardHeight
+      const score = calculatePreviewScore(windowsFromPreview, resolvedPreviewWidth, resolvedPreviewHeight)
 
       setPreviewHasRun(true)
       setPreviewWindows(windowsFromPreview)
+      setPreviewBoardWidth(resolvedPreviewWidth)
+      setPreviewBoardHeight(resolvedPreviewHeight)
+      setPreviewCroppedBackgroundUrl(payload.cropped_background_url || '')
       setPreviewProcessedBackgroundUrl(payload.processed_background_url || '')
       upsertPreviewCandidate(color, {
         score,
@@ -385,6 +407,9 @@ export default function ReviewPage() {
     } catch (err) {
       setPreviewHasRun(false)
       setPreviewWindows([])
+      setPreviewBoardWidth(0)
+      setPreviewBoardHeight(0)
+      setPreviewCroppedBackgroundUrl('')
       setPreviewProcessedBackgroundUrl('')
       setPreviewError(err.message)
       upsertPreviewCandidate(color, { preview_status: 'error' })
@@ -438,6 +463,11 @@ export default function ReviewPage() {
   const activePreviewCandidate = previewCandidateRows.find(
     (row) => String(row?.key_color || '').toUpperCase() === String(selectedPreviewColor || '').toUpperCase(),
   ) || null
+  const croppedImageUrl = previewHasRun
+    ? (previewCroppedBackgroundUrl || selectedLevel?.cropped_background_url || originalImageUrl)
+    : (selectedLevel?.cropped_background_url || originalImageUrl)
+  const previewDisplayBoardWidth = previewHasRun ? (previewBoardWidth || boardWidth) : boardWidth
+  const previewDisplayBoardHeight = previewHasRun ? (previewBoardHeight || boardHeight) : boardHeight
   const transformedImageUrl = previewHasRun
     ? (previewProcessedBackgroundUrl || originalImageUrl)
     : (selectedLevel?.background_url || '')
@@ -482,6 +512,7 @@ export default function ReviewPage() {
         body: JSON.stringify({
           window_key_color: selectedPreviewColor,
           windows: previewWindows,
+          cropped_background_url: previewCroppedBackgroundUrl,
           processed_background_url: previewProcessedBackgroundUrl,
           preview_candidate: previewCandidate,
         }),
@@ -495,6 +526,9 @@ export default function ReviewPage() {
       setSelectedLevel(updatedLevel)
       setPreviewHasRun(false)
       setPreviewWindows([])
+      setPreviewBoardWidth(0)
+      setPreviewBoardHeight(0)
+      setPreviewCroppedBackgroundUrl('')
       setPreviewProcessedBackgroundUrl('')
       setPreviewCandidateRows([])
       setPreviewSaveNote('Preview applied permanently to this level.')
@@ -744,25 +778,33 @@ export default function ReviewPage() {
                 title="1) Original Image"
                 imageUrl={originalImageUrl}
                 windows={[]}
-                boardWidth={boardWidth}
-                boardHeight={boardHeight}
+                boardWidth={previewDisplayBoardWidth}
+                boardHeight={previewDisplayBoardHeight}
                 showWindows={false}
                 onImageClick={handleOriginalImageClick}
               />
               <ReviewImageCard
                 title="2) Identified Boundary Boxes"
-                imageUrl={originalImageUrl}
+                imageUrl={croppedImageUrl}
                 windows={displayWindows}
-                boardWidth={boardWidth}
-                boardHeight={boardHeight}
+                boardWidth={previewDisplayBoardWidth}
+                boardHeight={previewDisplayBoardHeight}
                 showWindows={true}
               />
               <ReviewImageCard
-                title={`3) Transformed Image${previewHasRun ? ' (Preview Only)' : ''}`}
+                title="3) Boundary Cropped"
+                imageUrl={croppedImageUrl}
+                windows={[]}
+                boardWidth={previewDisplayBoardWidth}
+                boardHeight={previewDisplayBoardHeight}
+                showWindows={false}
+              />
+              <ReviewImageCard
+                title={`4) Transformed Image${previewHasRun ? ' (Preview Only)' : ''}`}
                 imageUrl={transformedImageUrl}
                 windows={[]}
-                boardWidth={boardWidth}
-                boardHeight={boardHeight}
+                boardWidth={previewDisplayBoardWidth}
+                boardHeight={previewDisplayBoardHeight}
                 showWindows={false}
               />
             </section>

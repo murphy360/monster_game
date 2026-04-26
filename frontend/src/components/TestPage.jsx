@@ -26,10 +26,12 @@ function getImageDimensions(dataUrl) {
 
 export default function TestPage({ debugBounds }) {
   const [backgroundUrl, setBackgroundUrl] = useState('')
+  const [croppedBackgroundUrl, setCroppedBackgroundUrl] = useState('')
   const [displayBackgroundUrl, setDisplayBackgroundUrl] = useState('')
   const [overlayUrl, setOverlayUrl] = useState('')
   const [maskUrl, setMaskUrl] = useState('')
   const [windowKeyColor, setWindowKeyColor] = useState('#A7EF46')
+  const [boundaryColor, setBoundaryColor] = useState('')
   const [boardWidth, setBoardWidth] = useState(1280)
   const [boardHeight, setBoardHeight] = useState(720)
   const [windows, setWindows] = useState([])
@@ -51,9 +53,11 @@ export default function TestPage({ debugBounds }) {
       const dataUrl = await readFileAsDataUrl(file)
       const dimensions = await getImageDimensions(dataUrl)
       setBackgroundUrl(dataUrl)
+      setCroppedBackgroundUrl('')
       setDisplayBackgroundUrl(dataUrl)
       setOverlayUrl('')
       setMaskUrl('')
+      setBoundaryColor('')
       setBoardWidth(dimensions.width || 1280)
       setBoardHeight(dimensions.height || 720)
       setWindows([])
@@ -89,10 +93,12 @@ export default function TestPage({ debugBounds }) {
 
       const data = await response.json()
       setWindows(Array.isArray(data.windows) ? data.windows : [])
+      setCroppedBackgroundUrl(data.cropped_background_url || '')
       setDisplayBackgroundUrl(data.processed_background_url || backgroundUrl)
       setOverlayUrl(data.overlay_url || '')
       setMaskUrl(data.mask_url || '')
       setWindowKeyColor(data.window_key_color || windowKeyColor)
+      setBoundaryColor(data.boundary_color || '')
       if (Number.isFinite(Number(data.board_width)) && Number(data.board_width) > 0) {
         setBoardWidth(Number(data.board_width))
       }
@@ -135,9 +141,11 @@ export default function TestPage({ debugBounds }) {
             type="button"
             onClick={() => {
               setWindows([])
+              setCroppedBackgroundUrl('')
               setDisplayBackgroundUrl(backgroundUrl)
               setOverlayUrl('')
               setMaskUrl('')
+              setBoundaryColor('')
             }}
             disabled={windows.length === 0 || loading}
             className="generate-btn secondary-btn"
@@ -157,6 +165,7 @@ export default function TestPage({ debugBounds }) {
         {!loading && windows.length > 0 && (
           <div className="test-status test-status-success">
             ✓ Found <strong>{windows.length}</strong> window{windows.length !== 1 ? 's' : ''} using color {windowKeyColor}
+            {boundaryColor ? ` | boundary color ${boundaryColor}` : ''}
           </div>
         )}
         {!loading && backgroundUrl && windows.length === 0 && !error && (
@@ -204,7 +213,16 @@ export default function TestPage({ debugBounds }) {
             )}
           </div>
           <div className="step-card">
-            <h3>Step 3: Processed Background</h3>
+            <h3>Step 3: Boundary Cropped</h3>
+            <img
+              src={croppedBackgroundUrl || backgroundUrl}
+              alt="Boundary-cropped image"
+              className="step-image"
+              style={{ aspectRatio: `${boardWidth} / ${boardHeight}` }}
+            />
+          </div>
+          <div className="step-card">
+            <h3>Step 4: Processed Background</h3>
             <img
               src={displayBackgroundUrl || backgroundUrl}
               alt="Processed background"
@@ -213,7 +231,7 @@ export default function TestPage({ debugBounds }) {
             />
           </div>
           <div className="step-card">
-            <h3>Step 4: Building Overlay</h3>
+            <h3>Step 5: Building Overlay</h3>
             {overlayUrl ? (
               <div
                 className="step-preview"

@@ -43,9 +43,12 @@ class MonsterMeta(BaseModel):
 class GenerateLevelResponse(BaseModel):
     title: str
     original_background_url: str | None = None
+    cropped_background_url: str | None = None
     background_url: str
     overlay_url: str
     window_key_color: str | None = None
+    boundary_color: str | None = None
+    candidate_key_colors: list[str] = []
     color_decision: dict[str, Any] | None = None
     windows: list[WindowConfig]
     sprite_urls: list[str]
@@ -376,9 +379,12 @@ async def generate_level(
 
         # ── Step 4: await background + outline windows ───────────────────
         original_background_url = ""
+        cropped_background_url = ""
         background_url = ""
         overlay_url = ""
         window_key_color = str(config.get("window_key_color") or "#A7EF46")
+        boundary_color = ""
+        candidate_key_colors: list[str] = []
         color_decision: dict[str, Any] | None = None
         windows: list[dict[str, int]] = []
 
@@ -410,12 +416,23 @@ async def generate_level(
         if background_url:
             try:
                 outlined = await outline_windows_from_image(background_url, window_key_color)
+                cropped_background_url = str(outlined.get("cropped_background_url") or "")
                 background_url = outlined.get("processed_background_url", background_url)
                 overlay_url = outlined.get("overlay_url", "")
                 window_key_color = str(outlined.get("window_key_color") or window_key_color)
+                boundary_color = str(outlined.get("boundary_color") or "")
+                candidate_key_colors = [
+                    str(color).upper()
+                    for color in (outlined.get("candidate_key_colors") or [])
+                    if isinstance(color, str) and color.strip()
+                ]
                 if color_decision is None:
                     color_decision = {}
                 color_decision["final_mask_removal_color"] = window_key_color
+                if boundary_color:
+                    color_decision["boundary_color"] = boundary_color
+                if candidate_key_colors:
+                    color_decision["candidate_key_colors"] = candidate_key_colors
                 board_width = _as_int(outlined.get("board_width"), BOARD_WIDTH) or BOARD_WIDTH
                 board_height = _as_int(outlined.get("board_height"), BOARD_HEIGHT) or BOARD_HEIGHT
                 windows = _normalize_windows(
@@ -450,9 +467,12 @@ async def generate_level(
         layout_payload = {
             "title": title,
             "original_background_url": original_background_url,
+            "cropped_background_url": cropped_background_url,
             "background_url": background_url,
             "overlay_url": overlay_url,
             "window_key_color": window_key_color,
+            "boundary_color": boundary_color or None,
+            "candidate_key_colors": candidate_key_colors,
             "color_decision": color_decision,
             "windows": windows,
             "board_width": board_width,
@@ -467,9 +487,12 @@ async def generate_level(
         full_response = GenerateLevelResponse(
             title=title,
             original_background_url=original_background_url,
+            cropped_background_url=cropped_background_url or None,
             background_url=background_url,
             overlay_url=overlay_url,
             window_key_color=window_key_color,
+            boundary_color=boundary_color or None,
+            candidate_key_colors=candidate_key_colors,
             color_decision=color_decision,
             windows=[WindowConfig(**w) for w in windows],
             sprite_urls=sprite_urls,
