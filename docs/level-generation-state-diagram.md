@@ -38,7 +38,7 @@ stateDiagram-v2
     }
 
     EmitSpriteCount --> ParallelWork
-    ParallelWork --> OutlineWindows : process selected/final background
+    ParallelWork --> OutlineWindows : boundary crop + mask removal + window outlining
 
     OutlineWindows --> UseOutlinedWindows : windows found
     OutlineWindows --> UseSelectedWindows : fallback to color_decision.selected_windows
@@ -73,6 +73,9 @@ stateDiagram-v2
 - Each attempt can emit:
   - `background_image`: preview image for that attempt.
   - `background_attempt`: attempt number and status (`retrying`/`success`).
+- Validation combines:
+    - Gemini occupied-window check (`has_occupied_windows`).
+    - Local deterministic key-color scoring/window count over the supported mask colors.
 - If backend validation stalls after an attempt image is already available, the server finalizes from the latest attempt instead of hanging indefinitely.
 
 4. Window selection cascade
@@ -125,8 +128,10 @@ sequenceDiagram
             end
             B-->>C: event background_attempt(status)
 
-            B->>G: occupied-window / key-color checks
-            G-->>B: validation signals
+            B->>G: occupied-window check on attempt image
+            G-->>B: has_occupied_windows true/false
+            B->>W: score supported key colors on attempt image
+            W-->>B: selected_key_color + candidate_scores
             alt valid
                 break accept image
             else retry
@@ -140,7 +145,7 @@ sequenceDiagram
     end
 
     B->>W: outline_windows_from_image(background, selected key color)
-    W-->>B: windows + processed background + overlay
+    W-->>B: windows + cropped background + processed background + overlay + boundary metadata
 
     alt no outlined windows
         B->>B: fallback to color_decision.selected_windows

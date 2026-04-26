@@ -51,16 +51,17 @@ class GeminiAdapter(AIGenerator):
     BACKGROUND_MAX_RETRIES = 2
     WINDOW_KEY_COLORS = (
         "#A7EF46",
-        "#9A2E82",
+        "#FF00FF",
         "#FF6A13",
     )
     WINDOW_KEY_COLOR_LABELS = {
         "#A7EF46": "neon lime",
-        "#9A2E82": "deep magenta",
+        "#FF00FF": "neon fuchsia",
         "#FF6A13": "vivid orange",
     }
     KEY_COLOR_TOP_WINDOW_COUNT = 5
-    KEY_COLOR_MODEL_MATCH_BONUS = 15000.0
+    KEY_COLOR_MODEL_MATCH_BONUS = 5000.0
+    KEY_COLOR_BOUNDARY_MATCH_BONUS = 12000.0
     KEY_COLOR_ABSURD_BOX_AREA_RATIO = 0.22
 
     def __init__(self) -> None:
@@ -270,7 +271,18 @@ class GeminiAdapter(AIGenerator):
         best_score = float("-inf")
         candidate_scores: list[dict[str, Any]] = []
 
-        for color in self.WINDOW_KEY_COLORS:
+        boundary_probe = await outline_windows_from_image(
+            image_data_uri,
+            preferred_key_color or self.WINDOW_KEY_COLORS[0],
+            allow_key_fallback=False,
+        )
+        boundary_color = str(boundary_probe.get("boundary_color") or "").upper()
+
+        candidate_colors = list(self.WINDOW_KEY_COLORS)
+        if boundary_color.startswith("#") and len(boundary_color) == 7 and boundary_color not in candidate_colors:
+            candidate_colors.append(boundary_color)
+
+        for color in candidate_colors:
             outlined = await outline_windows_from_image(
                 image_data_uri,
                 color,
@@ -310,6 +322,16 @@ class GeminiAdapter(AIGenerator):
             ):
                 score += self.KEY_COLOR_MODEL_MATCH_BONUS
 
+            boundary_bonus_applied = False
+            if (
+                boundary_color
+                and color == boundary_color
+                and window_count > 0
+                and not has_absurdly_large_box
+            ):
+                score += self.KEY_COLOR_BOUNDARY_MATCH_BONUS
+                boundary_bonus_applied = True
+
             candidate_scores.append(
                 {
                     "key_color": color,
@@ -320,6 +342,7 @@ class GeminiAdapter(AIGenerator):
                     "top_window_areas": top_window_areas,
                     "largest_area": largest_area,
                     "has_absurdly_large_box": has_absurdly_large_box,
+                    "boundary_bonus_applied": boundary_bonus_applied,
                     "score": score,
                 }
             )
@@ -335,6 +358,8 @@ class GeminiAdapter(AIGenerator):
             "selected_window_count": best_count,
             "selected_windows": best_windows,
             "candidate_scores": candidate_scores,
+            "candidate_key_colors": candidate_colors,
+            "boundary_color": boundary_color or None,
         }
 
     async def generate_background(
@@ -353,21 +378,22 @@ class GeminiAdapter(AIGenerator):
             key_color_options = self._window_key_color_list_text()
             for attempt in range(1, self.BACKGROUND_MAX_RETRIES + 1):
                 chosen_key_color, model_returned_key_color = await self._choose_key_color_for_theme(theme)
-                chosen_key_color_label = self._window_key_color_label(chosen_key_color)
                 prompt = (
                     f"A detailed game background scene for a whack-a-mole monster game. "
                     f"Theme: {theme}. "
-                    "The scene must show architecture with clearly visible rectangular windows/openings "
-                    "that are EMPTY and unobstructed. "
-                    f"Use ONLY this mask color for ALL window/opening interiors: {chosen_key_color} ({chosen_key_color_label}). "
-                    f"Supported mask color list for reference: {key_color_options}. "
-                    "That chosen mask color will be removed in post-processing, so it must appear ONLY inside openings AND as a solid outer border. "
-                    f"Paint a solid, unbroken border of exactly {chosen_key_color} ({chosen_key_color_label}) that is 10–15 pixels wide around the entire outer edge of the image. "
-                    "Do not use the chosen mask color anywhere else in the image outside of window interiors and the outer border. "
-                    "Do not use any of the other supported mask colors anywhere in the image. "
-                    "No gradients or texture inside those colored openings. "
+                    "The scene must show architecture with clearly visible rectangular windows/openings that are EMPTY and unobstructed. "
+                    f"Supported mask colors: {key_color_options}. "
+                    "Choose EXACTLY ONE of those three colors that will stand out the most from this scene's likely palette. "
+                    "Use ONLY that chosen color for window frames/opening interiors and for a solid outer border. "
+                    "Window/opening interiors must be perfectly uniform and flat in that exact color (#RRGGBB), with no hue shift, shading, texture, gradient, highlight, shadow, noise, anti-alias tint, or any color variation. "
+                    "For each window/opening, draw a continuous 2-pixel pure black (#000000) separator border immediately around the mask-colored interior so the mask fill is isolated from surrounding architecture. "
+                    "The outer border and every opening interior must match exactly as the same single RGB value. "
+                    "Paint a solid, unbroken border of that exact color, 10-15 pixels wide, around the entire image edge. "
+                    "Immediately inside that outer border, draw a continuous 2-pixel pure black (#000000) rectangle on all four sides to separate the border from the main scene content. "
+                    "Do not use the chosen color anywhere else in the scene outside window frames/opening interiors and the outer border. "
+                    "Avoid using the two non-chosen supported mask colors in scene content. "
                     "Do not include monsters, creatures, people, silhouettes, faces, or characters inside windows/openings. "
-                    "Do not include text or UI elements. Cartoon/illustrated style, vivid colours. "
+                    "Do not include any text, letters, numbers, symbols, logos, signs, labels, watermarks, or UI elements anywhere in the image. Cartoon/illustrated style, vivid colours. "
                     f"Attempt variation {attempt}: emphasize clean, empty opening interiors suitable for sprite pop-outs."
                 )
                 image_bytes, _ = await self._generate_image_bytes(prompt, aspect_ratio="16:9")
@@ -393,11 +419,13 @@ class GeminiAdapter(AIGenerator):
                 attempt_image_url = "data:image/png;base64," + base64.b64encode(fixed).decode()
                 last_decision = {
                     "supported_key_colors": list(self.WINDOW_KEY_COLORS),
+                    "candidate_key_colors": selection.get("candidate_key_colors", list(self.WINDOW_KEY_COLORS)),
                     "model_returned_key_color": model_returned_key_color,
                     "model_returned_supported": model_returned_key_color in self.WINDOW_KEY_COLORS,
                     "prompt_requested_key_color": chosen_key_color,
                     "selected_key_color": selected_key_color,
                     "selected_window_count": selected_window_count,
+                    "boundary_color": selection.get("boundary_color"),
                     "has_occupied_windows": has_occupied_windows,
                     "attempt": attempt,
                     "candidate_scores": selection.get("candidate_scores", []),

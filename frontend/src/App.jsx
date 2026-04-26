@@ -491,7 +491,7 @@ export default function App() {
         ) : (
           <GameBoard
             backgroundUrl={levelData.background_url || FALLBACK_BACKGROUND}
-            overlayUrl={showDebugBounds ? (levelData.overlay_url || '') : ''}
+            overlayUrl={levelData.overlay_url || ''}
             windows={levelData.windows}
             spriteUrls={spriteUrls}
             monstersMeta={monstersMeta}

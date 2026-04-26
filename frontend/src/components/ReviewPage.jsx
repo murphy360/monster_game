@@ -311,6 +311,11 @@ export default function ReviewPage() {
   const candidateScores = Array.isArray(colorDecision?.candidate_scores)
     ? colorDecision.candidate_scores
     : []
+  const boundaryDetectedColor = String(
+    colorDecision?.boundary_color
+    || selectedLevel?.boundary_color
+    || '',
+  ).toUpperCase()
 
   useEffect(() => {
     setSelectedCandidateKey(String(colorDecision?.selected_key_color || ''))
@@ -443,7 +448,24 @@ export default function ReviewPage() {
     runPreviewReprocess(hex)
   }
 
-  const displayCandidates = [...candidateScores, ...previewCandidateRows]
+  const displayCandidates = (() => {
+    const mergedByColor = new Map()
+
+    for (const candidate of candidateScores) {
+      const keyColor = String(candidate?.key_color || '').toUpperCase()
+      if (!keyColor) continue
+      mergedByColor.set(keyColor, { ...candidate, key_color: keyColor })
+    }
+
+    // Preview rows should override saved rows for the same key color.
+    for (const candidate of previewCandidateRows) {
+      const keyColor = String(candidate?.key_color || '').toUpperCase()
+      if (!keyColor) continue
+      mergedByColor.set(keyColor, { ...candidate, key_color: keyColor })
+    }
+
+    return Array.from(mergedByColor.values())
+  })()
   const activeCandidate = displayCandidates.find(
     (candidate) => String(candidate?.key_color || '').toUpperCase() === String(selectedCandidateKey || '').toUpperCase(),
   ) || null
@@ -667,13 +689,13 @@ export default function ReviewPage() {
                       : <ColorChip color="" />}
                   </p>
                   <p className="review-color-row">
-                    Model returned: <ColorChip color={colorDecision.model_returned_key_color} />
+                    Model suggested (theme step): <ColorChip color={colorDecision.model_returned_key_color} />
                     {!colorDecision.model_returned_supported && colorDecision.model_returned_key_color
                       ? <span className="review-color-note">(not in supported set, fallback applied)</span>
                       : null}
                   </p>
                   <p className="review-color-row">
-                    Prompt requested: <ColorChip color={colorDecision.prompt_requested_key_color} />
+                    Boundary color detected: <ColorChip color={boundaryDetectedColor} />
                   </p>
                   <p className="review-color-row">
                     Backend selected: <ColorChip color={colorDecision.selected_key_color} />
@@ -784,20 +806,20 @@ export default function ReviewPage() {
                 onImageClick={handleOriginalImageClick}
               />
               <ReviewImageCard
-                title="2) Identified Boundary Boxes"
-                imageUrl={croppedImageUrl}
-                windows={displayWindows}
-                boardWidth={previewDisplayBoardWidth}
-                boardHeight={previewDisplayBoardHeight}
-                showWindows={true}
-              />
-              <ReviewImageCard
-                title="3) Boundary Cropped"
+                title="2) Boundary Cropped"
                 imageUrl={croppedImageUrl}
                 windows={[]}
                 boardWidth={previewDisplayBoardWidth}
                 boardHeight={previewDisplayBoardHeight}
                 showWindows={false}
+              />
+              <ReviewImageCard
+                title="3) Identified Boundary Boxes"
+                imageUrl={croppedImageUrl}
+                windows={displayWindows}
+                boardWidth={previewDisplayBoardWidth}
+                boardHeight={previewDisplayBoardHeight}
+                showWindows={true}
               />
               <ReviewImageCard
                 title={`4) Transformed Image${previewHasRun ? ' (Preview Only)' : ''}`}

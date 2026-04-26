@@ -13,7 +13,7 @@ from PIL import Image
 DEFAULT_KEY_COLOR = (167, 239, 70)
 KEY_COLOR_CANDIDATES = (
     (167, 239, 70),
-    (154, 46, 130),
+    (255, 0, 255),
     (255, 106, 19),
 )
 KEY_COLOR_TOLERANCE = 30
@@ -22,7 +22,9 @@ MIN_COMPONENT_AREA = 500
 MIN_COMPONENT_SIDE = 20
 RENDER_MASK_DILATION_RADIUS = 2
 WINDOW_BOX_PADDING = 6
-SCORE_MIN_FILL_RATIO = 0.4
+SCORE_MIN_FILL_RATIO = 0.75
+SCORE_STRICT_COLOR_TOLERANCE = 10
+SCORE_STRICT_UNIFORM_RATIO = 0.92
 WINDOW_DARK_FILL = (6, 16, 30, 255)
 BOUNDARY_SAMPLE_BAND = 12
 BOUNDARY_COLOR_BUCKET_SIZE = 16
@@ -74,9 +76,9 @@ def _is_key_color(r: int, g: int, b: int, key_color: tuple[int, int, int]) -> bo
         # True key green should strongly dominate red/blue channels.
         return g >= 120 and (g - r) >= 35 and (g - b) >= 35
 
-    if key_color == (154, 46, 130):
-        # Key fuchsia (#9A2E82) requires red/blue dominance over green.
-        return r >= 95 and b >= 85 and abs(r - b) <= 95 and (min(r, b) - g) >= 25
+    if key_color == (255, 0, 255):
+        # Key fuchsia (#FF00FF) should have very strong red/blue and low green.
+        return r >= 170 and b >= 170 and g <= 85 and abs(r - b) <= 55
 
     if key_color == (255, 106, 19):
         # Key orange needs high red, moderate green, and clearly low blue.
@@ -120,6 +122,43 @@ def _is_color_match(
 ) -> bool:
     """Return True when a color is within per-channel tolerance of target."""
     return all(abs(channel - reference) <= tolerance for channel, reference in zip(rgb, target))
+
+
+def _count_strict_color_matches_in_box(
+    pixels: list[tuple[int, int, int, int]],
+    img_width: int,
+    raw_x: int,
+    raw_y: int,
+    raw_w: int,
+    raw_h: int,
+    key_color: tuple[int, int, int],
+    tolerance: int = SCORE_STRICT_COLOR_TOLERANCE,
+) -> tuple[int, int]:
+    """Return strict key-color match count and sampled area for a raw window box.
+
+    We ignore a 1px ring (when possible) to avoid edge anti-alias artifacts and
+    focus on the interior fill that should be uniformly chroma colored.
+    """
+    inset = 1 if raw_w >= 5 and raw_h >= 5 else 0
+    sample_x = raw_x + inset
+    sample_y = raw_y + inset
+    sample_w = raw_w - (inset * 2)
+    sample_h = raw_h - (inset * 2)
+    if sample_w <= 0 or sample_h <= 0:
+        sample_x = raw_x
+        sample_y = raw_y
+        sample_w = raw_w
+        sample_h = raw_h
+
+    matches = 0
+    sample_area = sample_w * sample_h
+    for dy in range(sample_h):
+        for dx in range(sample_w):
+            idx = (sample_y + dy) * img_width + (sample_x + dx)
+            r, g, b, _ = pixels[idx]
+            if _is_color_match((r, g, b), key_color, tolerance=tolerance):
+                matches += 1
+    return matches, sample_area
 
 
 def _estimate_boundary_color(image: Image.Image) -> tuple[int, int, int] | None:
@@ -324,6 +363,25 @@ def _dilate_mask(mask: bytearray, width: int, height: int, radius: int = 3) -> N
         mask[idx] = 1
 
 
+def _fill_mask_rectangles(mask: bytearray, width: int, windows: list[dict[str, int]]) -> None:
+    """Force-mask full interior of accepted scoring windows.
+
+    This removes shaded/gradient remnants that can remain when only exact
+    key-colored pixels are masked.
+    """
+    for win in windows:
+        x = int(win.get("x", 0))
+        y = int(win.get("y", 0))
+        w = int(win.get("width", 0))
+        h = int(win.get("height", 0))
+        if w <= 0 or h <= 0:
+            continue
+        for yy in range(y, y + h):
+            row_start = yy * width
+            for xx in range(x, x + w):
+                mask[row_start + xx] = 1
+
+
 def _connected_components(mask: bytearray, width: int, height: int) -> list[dict[str, int]]:
     """Return bounding boxes for connected mask regions."""
     visited = bytearray(width * height)
@@ -414,13 +472,26 @@ def _connected_components(mask: bytearray, width: int, height: int) -> list[dict
     return boxes
 
 
-def _to_scoring_windows(windows: list[dict]) -> list[dict]:
+def _to_scoring_windows(
+    windows: list[dict],
+    mask: bytearray | None = None,
+    img_width: int | None = None,
+    pixels: list[tuple[int, int, int, int]] | None = None,
+    key_color: tuple[int, int, int] | None = None,
+) -> list[dict]:
     """Return tight unpadded bounding boxes for windows that pass fill-ratio check.
 
     A window passes when the number of key-color pixels inside its tight bounding
     box is at least SCORE_MIN_FILL_RATIO of the box area.  This excludes sparse
     or stray matched regions so only solid, uniform window interiors contribute
     to scoring.
+
+    When *mask* and *img_width* are provided the fill ratio is computed by counting
+    every mask pixel that falls within the raw bounding box, which is more accurate
+    than relying solely on the connected-component pixel count.
+
+    When *pixels*, *img_width*, and *key_color* are provided, an additional strict
+    uniformity check rejects boxes whose interior is not mostly the exact key color.
     """
     result = []
     for win in windows:
@@ -434,8 +505,35 @@ def _to_scoring_windows(windows: list[dict]) -> list[dict]:
         box_area = raw_w * raw_h
         if box_area <= 0:
             continue
-        if pixel_area / box_area < SCORE_MIN_FILL_RATIO:
+        if mask is not None and img_width is not None:
+            raw_x = win.get("_raw_x", 0)
+            raw_y = win.get("_raw_y", 0)
+            mask_count = sum(
+                1
+                for dy in range(raw_h)
+                for dx in range(raw_w)
+                if mask[(raw_y + dy) * img_width + (raw_x + dx)]
+            )
+            fill_ratio = mask_count / box_area
+        else:
+            fill_ratio = pixel_area / box_area
+        if fill_ratio < SCORE_MIN_FILL_RATIO:
             continue
+        if pixels is not None and img_width is not None and key_color is not None:
+            strict_count, strict_area = _count_strict_color_matches_in_box(
+                pixels,
+                img_width,
+                win["_raw_x"],
+                win["_raw_y"],
+                raw_w,
+                raw_h,
+                key_color,
+            )
+            if strict_area <= 0:
+                continue
+            strict_ratio = strict_count / strict_area
+            if strict_ratio < SCORE_STRICT_UNIFORM_RATIO:
+                continue
         result.append({
             "x": win["_raw_x"],
             "y": win["_raw_y"],
@@ -504,11 +602,12 @@ async def outline_windows_from_image(
 
     width, height = base.size
     pixels = list(base.getdata())
-    resolved_key_color = _parse_key_color(key_color)
+    requested_key_color = _parse_key_color(key_color)
+    resolved_key_color = boundary_color if boundary_color is not None else requested_key_color
 
     candidate_colors: list[tuple[int, int, int]] = [resolved_key_color]
-    if boundary_color is not None and boundary_color not in candidate_colors:
-        candidate_colors.append(boundary_color)
+    if requested_key_color not in candidate_colors:
+        candidate_colors.append(requested_key_color)
     for candidate in KEY_COLOR_CANDIDATES:
         if candidate not in candidate_colors:
             candidate_colors.append(candidate)
@@ -520,7 +619,13 @@ async def outline_windows_from_image(
         resolved_key_color,
     )
 
-    scoring_windows = _to_scoring_windows(windows)
+    scoring_windows = _to_scoring_windows(
+        windows,
+        mask,
+        width,
+        pixels,
+        resolved_key_color,
+    )
     best_score = _score_windows(scoring_windows, width, height)
     if allow_key_fallback and best_score <= 0.0:
         for candidate in candidate_colors:
@@ -533,7 +638,13 @@ async def outline_windows_from_image(
                 height,
                 candidate,
             )
-            candidate_scoring = _to_scoring_windows(candidate_windows)
+            candidate_scoring = _to_scoring_windows(
+                candidate_windows,
+                candidate_mask,
+                width,
+                pixels,
+                candidate,
+            )
             candidate_score = _score_windows(candidate_scoring, width, height)
             if candidate_score > best_score:
                 resolved_key_color = candidate
@@ -542,6 +653,9 @@ async def outline_windows_from_image(
                 windows = candidate_windows
                 scoring_windows = candidate_scoring
                 best_score = candidate_score
+
+    # Mask the full accepted window interiors so shaded near-key pixels are removed too.
+    _fill_mask_rectangles(cleanup_mask, width, scoring_windows)
 
     processed_pixels: list[tuple[int, int, int, int]] = []
     overlay_pixels: list[tuple[int, int, int, int]] = []
