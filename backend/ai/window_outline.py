@@ -43,7 +43,7 @@ def _parse_key_color(key_color: str | tuple[int, int, int] | list[int] | None) -
         normalized = key_color.strip().lstrip("#")
         if len(normalized) != 6:
             raise ValueError(f"Invalid key color '{key_color}'")
-        return tuple(int(normalized[index:index + 2], 16) for index in (0, 2, 4))
+        return tuple(int(normalized[index : index + 2], 16) for index in (0, 2, 4))
 
     if len(key_color) != 3:
         raise ValueError("Key color must have exactly three channels")
@@ -112,7 +112,8 @@ def _encode_png_data_uri(image: Image.Image) -> str:
 
 def _key_color_hex(key_color: tuple[int, int, int]) -> str:
     """Encode a key color tuple as #RRGGBB."""
-    return "#%02X%02X%02X" % key_color
+    r, g, b = key_color
+    return f"#{r:02X}{g:02X}{b:02X}"
 
 
 def _is_color_match(
@@ -121,7 +122,7 @@ def _is_color_match(
     tolerance: int = BOUNDARY_COLOR_TOLERANCE,
 ) -> bool:
     """Return True when a color is within per-channel tolerance of target."""
-    return all(abs(channel - reference) <= tolerance for channel, reference in zip(rgb, target))
+    return all(abs(channel - reference) <= tolerance for channel, reference in zip(rgb, target, strict=True))
 
 
 def _count_strict_color_matches_in_box(
@@ -174,7 +175,11 @@ def _estimate_boundary_color(image: Image.Image) -> tuple[int, int, int] | None:
 
     def _add_sample(x: int, y: int) -> None:
         r, g, b, _ = pixels[x, y]
-        key = (r // BOUNDARY_COLOR_BUCKET_SIZE, g // BOUNDARY_COLOR_BUCKET_SIZE, b // BOUNDARY_COLOR_BUCKET_SIZE)
+        key = (
+            r // BOUNDARY_COLOR_BUCKET_SIZE,
+            g // BOUNDARY_COLOR_BUCKET_SIZE,
+            b // BOUNDARY_COLOR_BUCKET_SIZE,
+        )
         buckets.setdefault(key, []).append((r, g, b))
 
     for y in range(sample_band):
@@ -326,38 +331,38 @@ def _crop_boundary(
 
 def _dilate_mask(mask: bytearray, width: int, height: int, radius: int = 3) -> None:
     """Dilate (expand) the mask to fill small gaps between adjacent regions.
-    
+
     This fills in small black dividers (like window pane separators) so that
     multi-pane windows are detected as a single connected component.
     """
     additions: list[int] = []
-    
+
     for idx in range(width * height):
         if mask[idx]:
             continue
-        
+
         x = idx % width
         y = idx // width
         has_masked_neighbor = False
-        
+
         # Check if this unmasked pixel is within 'radius' distance of a masked pixel
         for dy in range(-radius, radius + 1):
             for dx in range(-radius, radius + 1):
                 nx = x + dx
                 ny = y + dy
-                
+
                 if 0 <= nx < width and 0 <= ny < height:
                     neighbor_idx = ny * width + nx
                     if mask[neighbor_idx]:
                         has_masked_neighbor = True
                         break
-            
+
             if has_masked_neighbor:
                 break
-        
+
         if has_masked_neighbor:
             additions.append(idx)
-    
+
     # Apply all additions
     for idx in additions:
         mask[idx] = 1
@@ -448,10 +453,7 @@ def _connected_components(mask: bytearray, width: int, height: int) -> list[dict
         padded_max_x = min(width - 1, max_x + WINDOW_BOX_PADDING)
         padded_max_y = min(height - 1, max_y + WINDOW_BOX_PADDING)
 
-        is_border_touching = (
-            min_x == 0 or min_y == 0
-            or max_x == width - 1 or max_y == height - 1
-        )
+        is_border_touching = min_x == 0 or min_y == 0 or max_x == width - 1 or max_y == height - 1
 
         boxes.append(
             {
@@ -534,12 +536,14 @@ def _to_scoring_windows(
             strict_ratio = strict_count / strict_area
             if strict_ratio < SCORE_STRICT_UNIFORM_RATIO:
                 continue
-        result.append({
-            "x": win["_raw_x"],
-            "y": win["_raw_y"],
-            "width": raw_w,
-            "height": raw_h,
-        })
+        result.append(
+            {
+                "x": win["_raw_x"],
+                "y": win["_raw_y"],
+                "width": raw_w,
+                "height": raw_h,
+            }
+        )
     return result
 
 
@@ -577,6 +581,7 @@ def _build_masks_for_key(
             match_count += 1
 
     import logging
+
     logger = logging.getLogger(__name__)
     logger.info(f"Color {key_color} matched {match_count} pixels (tolerance={KEY_COLOR_TOLERANCE})")
 

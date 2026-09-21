@@ -6,7 +6,8 @@ import asyncio
 import json
 import logging
 import time
-from typing import Annotated, Any, AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
@@ -134,8 +135,20 @@ def _align_monster_descriptions(
 def _fallback_monster_name(description: str, index: int) -> str:
     """Create a readable monster name when the model omits one."""
     stop_words = {
-        "a", "an", "and", "cartoon", "friendly", "from", "in", "monster",
-        "of", "peeking", "the", "through", "tiny", "with",
+        "a",
+        "an",
+        "and",
+        "cartoon",
+        "friendly",
+        "from",
+        "in",
+        "monster",
+        "of",
+        "peeking",
+        "the",
+        "through",
+        "tiny",
+        "with",
     }
     words = [
         word.capitalize()
@@ -162,9 +175,7 @@ def _fallback_level_config(theme: str) -> dict[str, Any]:
         "title": f"{theme.title()} (Local Test)",
         "window_key_color": "#A7EF46",
         "windows": windows,
-        "monster_descriptions": [
-            "friendly green blob monster with tiny horns" for _ in windows
-        ],
+        "monster_descriptions": ["friendly green blob monster with tiny horns" for _ in windows],
     }
 
 
@@ -204,17 +215,10 @@ async def generate_level(
             cfg: dict[str, Any],
         ) -> tuple[list[str], list[str], list[str]]:
             descriptions_local = [
-                d for d in cfg.get("monster_descriptions", [])
-                if isinstance(d, str) and d.strip()
+                d for d in cfg.get("monster_descriptions", []) if isinstance(d, str) and d.strip()
             ]
-            names_local = [
-                n for n in cfg.get("monster_names", [])
-                if isinstance(n, str) and n.strip()
-            ]
-            flavors_local = [
-                f for f in cfg.get("monster_flavor", [])
-                if isinstance(f, str)
-            ]
+            names_local = [n for n in cfg.get("monster_names", []) if isinstance(n, str) and n.strip()]
+            flavors_local = [f for f in cfg.get("monster_flavor", []) if isinstance(f, str)]
             return descriptions_local, names_local, flavors_local
 
         descriptions, names, flavors = _extract_monsters(config)
@@ -260,9 +264,7 @@ async def generate_level(
         names = names[: len(descriptions)]
         flavors = flavors[: len(descriptions)]
 
-        monsters_meta = [
-            {"name": n, "flavor": f} for n, f in zip(names, flavors)
-        ]
+        monsters_meta = [{"name": n, "flavor": f} for n, f in zip(names, flavors, strict=True)]
 
         yield f"event: sprite_count\ndata: {json.dumps({'count': len(descriptions), 'monsters': monsters_meta})}\n\n"
 
@@ -282,9 +284,7 @@ async def generate_level(
                     break
 
                 if request.making_sausage and payload.get("url"):
-                    events.append(
-                        f"event: background_image\ndata: {json.dumps(payload)}\n\n"
-                    )
+                    events.append(f"event: background_image\ndata: {json.dumps(payload)}\n\n")
                 events.append(
                     "event: background_attempt\ndata: "
                     + json.dumps(
@@ -315,6 +315,7 @@ async def generate_level(
 
         # ── Step 3: generate sprites concurrently, stream each as it finishes ─────────
         if request.generate_images:
+
             async def _gen_sprite_with_index(idx: int, desc: str) -> tuple[int, str]:
                 try:
                     url = await ai.generate_sprite(desc)
@@ -359,12 +360,13 @@ async def generate_level(
                         )
                         + "\n\n"
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # If we already received at least one background attempt image,
                     # do not hang forever waiting for downstream validation steps.
                     if (
                         latest_background_attempt
-                        and (time.monotonic() - last_background_attempt_at) >= BACKGROUND_STALL_TIMEOUT_SECONDS
+                        and (time.monotonic() - last_background_attempt_at)
+                        >= BACKGROUND_STALL_TIMEOUT_SECONDS
                     ):
                         logger.warning(
                             "Background task stalled after attempt image for %.1fs; finalizing with last attempt",
@@ -399,13 +401,15 @@ async def generate_level(
                     "window_key_color": (latest_background_attempt or {}).get("window_key_color", "#A7EF46"),
                     "color_decision": (latest_background_attempt or {}).get("color_decision", {}),
                 }
-                generation_warnings.append("Background validation timed out; finalized from latest attempt image.")
+                generation_warnings.append(
+                    "Background validation timed out; finalized from latest attempt image."
+                )
 
             background_url = generated_background.get("image_url", "")
             original_background_url = background_url
             window_key_color = str(generated_background.get("window_key_color") or window_key_color)
             raw_decision = generated_background.get("color_decision")
-            
+
             if isinstance(raw_decision, dict):
                 color_decision = dict(raw_decision)
                 final_attempt = color_decision.get("attempt", 1)
@@ -444,11 +448,10 @@ async def generate_level(
                 logger.warning("Window outlining failed; falling back to config windows: %s", exc)
                 outlined = {}
 
-        if not windows:
-            if isinstance(color_decision, dict):
-                selected_windows = color_decision.get("selected_windows", [])
-                if isinstance(selected_windows, list) and selected_windows:
-                    windows = _normalize_windows(selected_windows, board_width, board_height)
+        if not windows and isinstance(color_decision, dict):
+            selected_windows = color_decision.get("selected_windows", [])
+            if isinstance(selected_windows, list) and selected_windows:
+                windows = _normalize_windows(selected_windows, board_width, board_height)
 
         if not windows:
             windows = _normalize_windows(config.get("windows", []), board_width, board_height)

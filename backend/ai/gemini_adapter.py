@@ -24,12 +24,11 @@ import os
 import re
 from typing import Any
 
-from PIL import Image
-
 import httpx
+from dotenv import load_dotenv
 from google import genai
 from google.genai import types as genai_types
-from dotenv import load_dotenv
+from PIL import Image
 
 from .base import AIGenerator, BackgroundAttemptCallback, GeneratedBackground
 from .window_outline import outline_windows_from_image
@@ -67,7 +66,7 @@ class GeminiAdapter(AIGenerator):
     def __init__(self) -> None:
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
-            raise EnvironmentError(
+            raise OSError(
                 "GEMINI_API_KEY environment variable is not set. "
                 "Create a .env file in the backend/ directory with GEMINI_API_KEY=<your key>."
             )
@@ -119,7 +118,7 @@ class GeminiAdapter(AIGenerator):
         b_data = b.getdata()
         new_a = [
             0 if (rv >= threshold and gv >= threshold and bv >= threshold) else av
-            for rv, gv, bv, av in zip(r_data, g_data, b_data, a.getdata())
+            for rv, gv, bv, av in zip(r_data, g_data, b_data, a.getdata(), strict=True)
         ]
         a.putdata(new_a)
         img = Image.merge("RGBA", (r, g, b, a))
@@ -164,7 +163,7 @@ class GeminiAdapter(AIGenerator):
             "Check whether this scene has any people, monsters, animals, or characters inside "
             "the INTERIOR area of architectural windows/openings where gameplay sprites should appear. "
             "Ignore characters that are outside openings (for example on rooftops, balconies, decks, or ground). "
-            "Respond with ONLY JSON object: {\"has_occupied_windows\": true|false}."
+            'Respond with ONLY JSON object: {"has_occupied_windows": true|false}.'
         )
         response = await self._client.aio.models.generate_content(
             model=self._text_model,
@@ -244,7 +243,7 @@ class GeminiAdapter(AIGenerator):
             f"Allowed colors: {options_text}. "
             "Choose the single color that is MOST visually distinct from the likely scene palette for this theme. "
             "Prioritize avoiding likely dominant scene hues. "
-            "Respond with ONLY JSON: {\"window_key_color\": \"#RRGGBB or color label\"}."
+            'Respond with ONLY JSON: {"window_key_color": "#RRGGBB or color label"}.'
         )
         response = await self._client.aio.models.generate_content(
             model=self._text_model,
@@ -279,7 +278,11 @@ class GeminiAdapter(AIGenerator):
         boundary_color = str(boundary_probe.get("boundary_color") or "").upper()
 
         candidate_colors = list(self.WINDOW_KEY_COLORS)
-        if boundary_color.startswith("#") and len(boundary_color) == 7 and boundary_color not in candidate_colors:
+        if (
+            boundary_color.startswith("#")
+            and len(boundary_color) == 7
+            and boundary_color not in candidate_colors
+        ):
             candidate_colors.append(boundary_color)
 
         for color in candidate_colors:
@@ -293,10 +296,7 @@ class GeminiAdapter(AIGenerator):
             window_count = len(scoring_windows)
 
             window_areas = sorted(
-                (
-                    int(win.get("width", 0)) * int(win.get("height", 0))
-                    for win in scoring_windows
-                ),
+                (int(win.get("width", 0)) * int(win.get("height", 0)) for win in scoring_windows),
                 reverse=True,
             )
             top_window_areas = window_areas[: self.KEY_COLOR_TOP_WINDOW_COUNT]
@@ -323,12 +323,7 @@ class GeminiAdapter(AIGenerator):
                 score += self.KEY_COLOR_MODEL_MATCH_BONUS
 
             boundary_bonus_applied = False
-            if (
-                boundary_color
-                and color == boundary_color
-                and window_count > 0
-                and not has_absurdly_large_box
-            ):
+            if boundary_color and color == boundary_color and window_count > 0 and not has_absurdly_large_box:
                 score += self.KEY_COLOR_BOUNDARY_MATCH_BONUS
                 boundary_bonus_applied = True
 
@@ -369,7 +364,6 @@ class GeminiAdapter(AIGenerator):
     ) -> GeneratedBackground:
         """Generate a background image and return a data-URI plus key-color metadata."""
         try:
-            last_fixed: bytes | None = None
             last_key_color = self.WINDOW_KEY_COLORS[0]
             last_decision: dict[str, Any] = {
                 "supported_key_colors": list(self.WINDOW_KEY_COLORS),
@@ -402,8 +396,6 @@ class GeminiAdapter(AIGenerator):
                     self.BACKGROUND_WIDTH,
                     self.BACKGROUND_HEIGHT,
                 )
-                last_fixed = fixed
-
                 has_occupied_windows = await self._has_occupied_windows(fixed, "image/png")
                 selection = await self._select_best_key_color(
                     fixed,
@@ -419,7 +411,9 @@ class GeminiAdapter(AIGenerator):
                 attempt_image_url = "data:image/png;base64," + base64.b64encode(fixed).decode()
                 last_decision = {
                     "supported_key_colors": list(self.WINDOW_KEY_COLORS),
-                    "candidate_key_colors": selection.get("candidate_key_colors", list(self.WINDOW_KEY_COLORS)),
+                    "candidate_key_colors": selection.get(
+                        "candidate_key_colors", list(self.WINDOW_KEY_COLORS)
+                    ),
                     "model_returned_key_color": model_returned_key_color,
                     "model_returned_supported": model_returned_key_color in self.WINDOW_KEY_COLORS,
                     "prompt_requested_key_color": chosen_key_color,
@@ -433,9 +427,7 @@ class GeminiAdapter(AIGenerator):
 
                 if on_attempt is not None:
                     attempt_status = (
-                        "success"
-                        if (not has_occupied_windows and selected_window_count > 0)
-                        else "retrying"
+                        "success" if (not has_occupied_windows and selected_window_count > 0) else "retrying"
                     )
                     try:
                         await on_attempt(

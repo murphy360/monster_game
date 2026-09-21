@@ -1,80 +1,80 @@
-import React, { useState } from 'react'
-import GameBoard from './GameBoard.jsx'
+import React, { useState } from 'react';
+import GameBoard from './GameBoard.jsx';
 
 const TEST_SPRITE_URL =
-  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 160'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%23ffd66b'/%3E%3Cstop offset='1' stop-color='%23ff8a4c'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cellipse cx='60' cy='146' rx='38' ry='10' fill='%23000000' fill-opacity='0.25'/%3E%3Cpath d='M60 12c25 0 45 21 45 46 0 15-7 29-19 38l-2 48H36l-2-48C22 87 15 73 15 58c0-25 20-46 45-46z' fill='url(%23g)'/%3E%3Ccircle cx='45' cy='60' r='8' fill='%231a1a1a'/%3E%3Ccircle cx='75' cy='60' r='8' fill='%231a1a1a'/%3E%3Cpath d='M42 85c7 8 29 8 36 0' stroke='%231a1a1a' stroke-width='6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 160'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%23ffd66b'/%3E%3Cstop offset='1' stop-color='%23ff8a4c'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cellipse cx='60' cy='146' rx='38' ry='10' fill='%23000000' fill-opacity='0.25'/%3E%3Cpath d='M60 12c25 0 45 21 45 46 0 15-7 29-19 38l-2 48H36l-2-48C22 87 15 73 15 58c0-25 20-46 45-46z' fill='url(%23g)'/%3E%3Ccircle cx='45' cy='60' r='8' fill='%231a1a1a'/%3E%3Ccircle cx='75' cy='60' r='8' fill='%231a1a1a'/%3E%3Cpath d='M42 85c7 8 29 8 36 0' stroke='%231a1a1a' stroke-width='6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E";
 
 function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result || ''))
-    reader.onerror = () => reject(new Error('Failed to read image file'))
-    reader.readAsDataURL(file)
-  })
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Failed to read image file'));
+    reader.readAsDataURL(file);
+  });
 }
 
 function getImageDimensions(dataUrl) {
   return new Promise((resolve, reject) => {
-    const image = new Image()
+    const image = new Image();
     image.onload = () => {
-      resolve({ width: image.naturalWidth, height: image.naturalHeight })
-    }
-    image.onerror = () => reject(new Error('Failed to load uploaded image'))
-    image.src = dataUrl
-  })
+      resolve({ width: image.naturalWidth, height: image.naturalHeight });
+    };
+    image.onerror = () => reject(new Error('Failed to load uploaded image'));
+    image.src = dataUrl;
+  });
 }
 
 export default function TestPage({ debugBounds }) {
-  const [backgroundUrl, setBackgroundUrl] = useState('')
-  const [croppedBackgroundUrl, setCroppedBackgroundUrl] = useState('')
-  const [displayBackgroundUrl, setDisplayBackgroundUrl] = useState('')
-  const [overlayUrl, setOverlayUrl] = useState('')
-  const [maskUrl, setMaskUrl] = useState('')
-  const [windowKeyColor, setWindowKeyColor] = useState('#A7EF46')
-  const [boundaryColor, setBoundaryColor] = useState('')
-  const [boardWidth, setBoardWidth] = useState(1280)
-  const [boardHeight, setBoardHeight] = useState(720)
-  const [windows, setWindows] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
-  const [imageName, setImageName] = useState('window-snap-test.png')
+  const [backgroundUrl, setBackgroundUrl] = useState('');
+  const [croppedBackgroundUrl, setCroppedBackgroundUrl] = useState('');
+  const [displayBackgroundUrl, setDisplayBackgroundUrl] = useState('');
+  const [overlayUrl, setOverlayUrl] = useState('');
+  const [maskUrl, setMaskUrl] = useState('');
+  const [windowKeyColor, setWindowKeyColor] = useState('#A7EF46');
+  const [boundaryColor, setBoundaryColor] = useState('');
+  const [boardWidth, setBoardWidth] = useState(1280);
+  const [boardHeight, setBoardHeight] = useState(720);
+  const [windows, setWindows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [imageName, setImageName] = useState('window-snap-test.png');
 
-  const hasOutlineData = windows.length > 0
-  const testSpriteUrls = windows.map(() => TEST_SPRITE_URL)
+  const hasOutlineData = windows.length > 0;
+  const testSpriteUrls = windows.map(() => TEST_SPRITE_URL);
 
   async function handleImageUpload(event) {
-    const file = event.target.files?.[0]
-    if (!file) return
+    const file = event.target.files?.[0];
+    if (!file) return;
 
-    setLoading(true)
-    setError(null)
+    setLoading(true);
+    setError(null);
 
     try {
-      const dataUrl = await readFileAsDataUrl(file)
-      const dimensions = await getImageDimensions(dataUrl)
-      setBackgroundUrl(dataUrl)
-      setCroppedBackgroundUrl('')
-      setDisplayBackgroundUrl(dataUrl)
-      setOverlayUrl('')
-      setMaskUrl('')
-      setBoundaryColor('')
-      setBoardWidth(dimensions.width || 1280)
-      setBoardHeight(dimensions.height || 720)
-      setWindows([])
-      setImageName(file.name || 'window-snap-test.png')
+      const dataUrl = await readFileAsDataUrl(file);
+      const dimensions = await getImageDimensions(dataUrl);
+      setBackgroundUrl(dataUrl);
+      setCroppedBackgroundUrl('');
+      setDisplayBackgroundUrl(dataUrl);
+      setOverlayUrl('');
+      setMaskUrl('');
+      setBoundaryColor('');
+      setBoardWidth(dimensions.width || 1280);
+      setBoardHeight(dimensions.height || 720);
+      setWindows([]);
+      setImageName(file.name || 'window-snap-test.png');
     } catch (err) {
-      setError(err.message)
+      setError(err.message);
     } finally {
-      setLoading(false)
-      event.target.value = ''
+      setLoading(false);
+      event.target.value = '';
     }
   }
 
   async function handleOutlineWindows() {
-    if (!backgroundUrl) return
+    if (!backgroundUrl) return;
 
-    setLoading(true)
-    setError(null)
+    setLoading(true);
+    setError(null);
 
     try {
       const response = await fetch('/serve-assets', {
@@ -85,30 +85,30 @@ export default function TestPage({ debugBounds }) {
           window_key_color: windowKeyColor,
           character_descriptions: [],
         }),
-      })
+      });
 
       if (!response.ok) {
-        throw new Error(`Window outlining failed: ${response.status}`)
+        throw new Error(`Window outlining failed: ${response.status}`);
       }
 
-      const data = await response.json()
-      setWindows(Array.isArray(data.windows) ? data.windows : [])
-      setCroppedBackgroundUrl(data.cropped_background_url || '')
-      setDisplayBackgroundUrl(data.processed_background_url || backgroundUrl)
-      setOverlayUrl(data.overlay_url || '')
-      setMaskUrl(data.mask_url || '')
-      setWindowKeyColor(data.window_key_color || windowKeyColor)
-      setBoundaryColor(data.boundary_color || '')
+      const data = await response.json();
+      setWindows(Array.isArray(data.windows) ? data.windows : []);
+      setCroppedBackgroundUrl(data.cropped_background_url || '');
+      setDisplayBackgroundUrl(data.processed_background_url || backgroundUrl);
+      setOverlayUrl(data.overlay_url || '');
+      setMaskUrl(data.mask_url || '');
+      setWindowKeyColor(data.window_key_color || windowKeyColor);
+      setBoundaryColor(data.boundary_color || '');
       if (Number.isFinite(Number(data.board_width)) && Number(data.board_width) > 0) {
-        setBoardWidth(Number(data.board_width))
+        setBoardWidth(Number(data.board_width));
       }
       if (Number.isFinite(Number(data.board_height)) && Number(data.board_height) > 0) {
-        setBoardHeight(Number(data.board_height))
+        setBoardHeight(Number(data.board_height));
       }
     } catch (err) {
-      setError(err.message)
+      setError(err.message);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
   }
 
@@ -120,7 +120,10 @@ export default function TestPage({ debugBounds }) {
             <input type="file" accept="image/*" onChange={handleImageUpload} />
             Upload Image
           </label>
-          <label className="theme-input" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <label
+            className="theme-input"
+            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+          >
             Key Color
             <input
               type="color"
@@ -140,12 +143,12 @@ export default function TestPage({ debugBounds }) {
           <button
             type="button"
             onClick={() => {
-              setWindows([])
-              setCroppedBackgroundUrl('')
-              setDisplayBackgroundUrl(backgroundUrl)
-              setOverlayUrl('')
-              setMaskUrl('')
-              setBoundaryColor('')
+              setWindows([]);
+              setCroppedBackgroundUrl('');
+              setDisplayBackgroundUrl(backgroundUrl);
+              setOverlayUrl('');
+              setMaskUrl('');
+              setBoundaryColor('');
             }}
             disabled={windows.length === 0 || loading}
             className="generate-btn secondary-btn"
@@ -154,7 +157,8 @@ export default function TestPage({ debugBounds }) {
           </button>
         </div>
         <p className="test-copy">
-          Upload any background, choose the placeholder key color used in the openings, then run deterministic chroma-key outlining on that exact image.
+          Upload any background, choose the placeholder key color used in the openings, then run
+          deterministic chroma-key outlining on that exact image.
         </p>
         {loading && (
           <div className="test-status">
@@ -164,12 +168,15 @@ export default function TestPage({ debugBounds }) {
         )}
         {!loading && windows.length > 0 && (
           <div className="test-status test-status-success">
-            ✓ Found <strong>{windows.length}</strong> window{windows.length !== 1 ? 's' : ''} using color {windowKeyColor}
+            ✓ Found <strong>{windows.length}</strong> window{windows.length !== 1 ? 's' : ''} using
+            color {windowKeyColor}
             {boundaryColor ? ` | boundary color ${boundaryColor}` : ''}
           </div>
         )}
         {!loading && backgroundUrl && windows.length === 0 && !error && (
-          <p className="test-copy">No exact-color matches found. Check that your image has pixels in the exact key color.</p>
+          <p className="test-copy">
+            No exact-color matches found. Check that your image has pixels in the exact key color.
+          </p>
         )}
         {error && <p className="error">Error: {error}</p>}
       </section>
@@ -258,7 +265,11 @@ export default function TestPage({ debugBounds }) {
                     />
                   ))}
                 </div>
-                <img src={overlayUrl} alt="Transparent overlay" className="step-image overlay-step-image" />
+                <img
+                  src={overlayUrl}
+                  alt="Transparent overlay"
+                  className="step-image overlay-step-image"
+                />
               </div>
             ) : (
               <p>Run Outline Windows.</p>
@@ -287,5 +298,5 @@ export default function TestPage({ debugBounds }) {
         </div>
       )}
     </div>
-  )
+  );
 }

@@ -1,5 +1,5 @@
-import React from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import React from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 /**
  * WindowNode renders a single "window" on the game board and animates a
@@ -25,12 +25,12 @@ export default function WindowNode({
   debugBounds = false,
   renderSprite = true,
 }) {
-  const visible = renderSprite && Boolean(activeSpriteUrl)
+  const visible = renderSprite && Boolean(activeSpriteUrl);
 
   function handleClick() {
-    if (!visible) return
+    if (!visible) return;
     if (visible && activeSpriteUrl) {
-      onWhack(windowId, activeSpriteUrl)
+      onWhack(windowId, activeSpriteUrl);
     }
   }
 
@@ -43,7 +43,7 @@ export default function WindowNode({
         top: win.y,
         width: win.width,
         height: win.height,
-        overflow: 'hidden',   // Clip sprite to bounding box (mask effect)
+        overflow: 'hidden', // Clip sprite to bounding box (mask effect)
         cursor: renderSprite && visible ? 'pointer' : 'default',
       }}
       onClick={handleClick}
@@ -99,5 +99,5 @@ export default function WindowNode({
         }}
       />
     </div>
-  )
+  );
 }

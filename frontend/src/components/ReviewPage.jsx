@@ -1,28 +1,28 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-const REVIEW_DRAFT_KEY = 'monsterGame.reviewDraft'
-const REVIEW_DRAFT_ID = '__draft__'
+const REVIEW_DRAFT_KEY = 'monsterGame.reviewDraft';
+const REVIEW_DRAFT_ID = '__draft__';
 
-const FALLBACK_DIMENSION = 1280
+const FALLBACK_DIMENSION = 1280;
 
 function readReviewDraft() {
   try {
-    const rawDraft = localStorage.getItem(REVIEW_DRAFT_KEY)
-    const draft = rawDraft ? JSON.parse(rawDraft) : null
-    return draft && typeof draft === 'object' ? draft : null
+    const rawDraft = localStorage.getItem(REVIEW_DRAFT_KEY);
+    const draft = rawDraft ? JSON.parse(rawDraft) : null;
+    return draft && typeof draft === 'object' ? draft : null;
   } catch (_) {
-    return null
+    return null;
   }
 }
 
 function safeDimension(value) {
-  const parsed = Number(value)
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : FALLBACK_DIMENSION
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : FALLBACK_DIMENSION;
 }
 
 function WindowOverlay({ windows, boardWidth, boardHeight }) {
   if (!Array.isArray(windows) || windows.length === 0) {
-    return null
+    return null;
   }
 
   return (
@@ -41,7 +41,7 @@ function WindowOverlay({ windows, boardWidth, boardHeight }) {
         />
       ))}
     </div>
-  )
+  );
 }
 
 function ReviewImageCard({
@@ -57,7 +57,10 @@ function ReviewImageCard({
     <section className="review-image-card">
       <h3>{title}</h3>
       {imageUrl ? (
-        <div className="review-image-frame" style={{ aspectRatio: `${boardWidth} / ${boardHeight}` }}>
+        <div
+          className="review-image-frame"
+          style={{ aspectRatio: `${boardWidth} / ${boardHeight}` }}
+        >
           <img
             src={imageUrl}
             alt={title}
@@ -72,46 +75,46 @@ function ReviewImageCard({
         <p className="review-empty">Not available for this level.</p>
       )}
     </section>
-  )
+  );
 }
 
 function ColorChip({ color }) {
   if (!color) {
-    return <span className="review-color-chip review-color-chip-empty">n/a</span>
+    return <span className="review-color-chip review-color-chip-empty">n/a</span>;
   }
   return (
     <span className="review-color-chip" title={color}>
       <span className="review-color-swatch" style={{ backgroundColor: color }} />
       {color}
     </span>
-  )
+  );
 }
 
 export default function ReviewPage() {
-  const [levels, setLevels] = useState([])
-  const [selectedLevelId, setSelectedLevelId] = useState('')
-  const [selectedLevel, setSelectedLevel] = useState(null)
-  const [loadingLevels, setLoadingLevels] = useState(false)
-  const [deletingLevelId, setDeletingLevelId] = useState('')
-  const [loadingLevelData, setLoadingLevelData] = useState(false)
-  const [error, setError] = useState('')
-  const [selectedPreviewColor, setSelectedPreviewColor] = useState('')
-  const [previewProcessing, setPreviewProcessing] = useState(false)
-  const [previewError, setPreviewError] = useState('')
-  const [previewHasRun, setPreviewHasRun] = useState(false)
-  const [previewWindows, setPreviewWindows] = useState([])
-  const [previewBoardWidth, setPreviewBoardWidth] = useState(0)
-  const [previewBoardHeight, setPreviewBoardHeight] = useState(0)
-  const [previewCroppedBackgroundUrl, setPreviewCroppedBackgroundUrl] = useState('')
-  const [previewProcessedBackgroundUrl, setPreviewProcessedBackgroundUrl] = useState('')
-  const [previewCandidateRows, setPreviewCandidateRows] = useState([])
-  const [previewSaving, setPreviewSaving] = useState(false)
-  const [previewSaveNote, setPreviewSaveNote] = useState('')
-  const [selectedCandidateKey, setSelectedCandidateKey] = useState('')
+  const [levels, setLevels] = useState([]);
+  const [selectedLevelId, setSelectedLevelId] = useState('');
+  const [selectedLevel, setSelectedLevel] = useState(null);
+  const [loadingLevels, setLoadingLevels] = useState(false);
+  const [deletingLevelId, setDeletingLevelId] = useState('');
+  const [loadingLevelData, setLoadingLevelData] = useState(false);
+  const [error, setError] = useState('');
+  const [selectedPreviewColor, setSelectedPreviewColor] = useState('');
+  const [previewProcessing, setPreviewProcessing] = useState(false);
+  const [previewError, setPreviewError] = useState('');
+  const [previewHasRun, setPreviewHasRun] = useState(false);
+  const [previewWindows, setPreviewWindows] = useState([]);
+  const [previewBoardWidth, setPreviewBoardWidth] = useState(0);
+  const [previewBoardHeight, setPreviewBoardHeight] = useState(0);
+  const [previewCroppedBackgroundUrl, setPreviewCroppedBackgroundUrl] = useState('');
+  const [previewProcessedBackgroundUrl, setPreviewProcessedBackgroundUrl] = useState('');
+  const [previewCandidateRows, setPreviewCandidateRows] = useState([]);
+  const [previewSaving, setPreviewSaving] = useState(false);
+  const [previewSaveNote, setPreviewSaveNote] = useState('');
+  const [selectedCandidateKey, setSelectedCandidateKey] = useState('');
 
   const buildLevelListWithDraft = useCallback((items) => {
-    const nextLevels = Array.isArray(items) ? items : []
-    const draft = readReviewDraft()
+    const nextLevels = Array.isArray(items) ? items : [];
+    const draft = readReviewDraft();
     if (draft) {
       return [
         {
@@ -121,18 +124,18 @@ export default function ReviewPage() {
           created_at: draft.created_at || '',
         },
         ...nextLevels,
-      ]
+      ];
     }
-    return nextLevels
-  }, [])
+    return nextLevels;
+  }, []);
 
   const syncDraftState = useCallback(() => {
-    const draft = readReviewDraft()
+    const draft = readReviewDraft();
 
     setLevels((currentLevels) => {
-      const withoutDraft = currentLevels.filter((level) => level.id !== REVIEW_DRAFT_ID)
+      const withoutDraft = currentLevels.filter((level) => level.id !== REVIEW_DRAFT_ID);
       if (!draft) {
-        return withoutDraft
+        return withoutDraft;
       }
 
       return [
@@ -143,207 +146,221 @@ export default function ReviewPage() {
           created_at: draft.created_at || '',
         },
         ...withoutDraft,
-      ]
-    })
+      ];
+    });
 
     if (selectedLevelId === REVIEW_DRAFT_ID) {
-      setSelectedLevel(draft)
-      setLoadingLevelData(false)
+      setSelectedLevel(draft);
+      setLoadingLevelData(false);
     }
 
     if (!draft && selectedLevelId === REVIEW_DRAFT_ID) {
-      setSelectedLevelId((currentLevelId) => (currentLevelId === REVIEW_DRAFT_ID ? '' : currentLevelId))
+      setSelectedLevelId((currentLevelId) =>
+        currentLevelId === REVIEW_DRAFT_ID ? '' : currentLevelId,
+      );
     }
-  }, [selectedLevelId])
+  }, [selectedLevelId]);
 
-  const loadLevels = useCallback(async (preferredLevelId = '') => {
-    setLoadingLevels(true)
-    setError('')
-    try {
-      const response = await fetch('/levels')
-      if (!response.ok) {
-        throw new Error(`Could not load saved levels (${response.status})`)
+  const loadLevels = useCallback(
+    async (preferredLevelId = '') => {
+      setLoadingLevels(true);
+      setError('');
+      try {
+        const response = await fetch('/levels');
+        if (!response.ok) {
+          throw new Error(`Could not load saved levels (${response.status})`);
+        }
+
+        const data = await response.json();
+        const withDraft = buildLevelListWithDraft(data);
+        setLevels(withDraft);
+        setSelectedLevelId((currentLevelId) => {
+          if (preferredLevelId && withDraft.some((level) => level.id === preferredLevelId)) {
+            return preferredLevelId;
+          }
+          if (currentLevelId && withDraft.some((level) => level.id === currentLevelId)) {
+            return currentLevelId;
+          }
+          return withDraft[0]?.id || '';
+        });
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoadingLevels(false);
       }
-
-      const data = await response.json()
-      const withDraft = buildLevelListWithDraft(data)
-      setLevels(withDraft)
-      setSelectedLevelId((currentLevelId) => {
-        if (preferredLevelId && withDraft.some((level) => level.id === preferredLevelId)) {
-          return preferredLevelId
-        }
-        if (currentLevelId && withDraft.some((level) => level.id === currentLevelId)) {
-          return currentLevelId
-        }
-        return withDraft[0]?.id || ''
-      })
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setLoadingLevels(false)
-    }
-  }, [buildLevelListWithDraft])
+    },
+    [buildLevelListWithDraft],
+  );
 
   useEffect(() => {
-    loadLevels()
-  }, [loadLevels])
+    loadLevels();
+  }, [loadLevels]);
 
   useEffect(() => {
-    let cancelled = false
+    let cancelled = false;
     if (!selectedLevelId) {
-      setSelectedLevel(null)
+      setSelectedLevel(null);
       return () => {
-        cancelled = true
-      }
+        cancelled = true;
+      };
     }
 
     if (selectedLevelId === REVIEW_DRAFT_ID) {
-      setSelectedLevel(readReviewDraft())
-      setLoadingLevelData(false)
+      setSelectedLevel(readReviewDraft());
+      setLoadingLevelData(false);
       return () => {
-        cancelled = true
-      }
+        cancelled = true;
+      };
     }
 
     async function fetchLevel() {
-      setLoadingLevelData(true)
-      setError('')
+      setLoadingLevelData(true);
+      setError('');
       try {
-        const response = await fetch(`/levels/${selectedLevelId}`)
+        const response = await fetch(`/levels/${selectedLevelId}`);
         if (!response.ok) {
-          throw new Error(`Could not load level ${selectedLevelId} (${response.status})`)
+          throw new Error(`Could not load level ${selectedLevelId} (${response.status})`);
         }
-        const data = await response.json()
+        const data = await response.json();
         if (!cancelled) {
-          setSelectedLevel(data)
+          setSelectedLevel(data);
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err.message)
+          setError(err.message);
         }
       } finally {
         if (!cancelled) {
-          setLoadingLevelData(false)
+          setLoadingLevelData(false);
         }
       }
     }
 
-    fetchLevel()
+    fetchLevel();
 
     return () => {
-      cancelled = true
-    }
-  }, [selectedLevelId])
+      cancelled = true;
+    };
+  }, [selectedLevelId]);
 
   useEffect(() => {
     if (selectedLevelId !== REVIEW_DRAFT_ID) {
-      return undefined
+      return undefined;
     }
 
-    syncDraftState()
+    syncDraftState();
 
     const intervalId = window.setInterval(() => {
-      syncDraftState()
-    }, 1000)
+      syncDraftState();
+    }, 1000);
 
     function handleStorage(event) {
       if (event.key && event.key !== REVIEW_DRAFT_KEY) {
-        return
+        return;
       }
-      syncDraftState()
+      syncDraftState();
     }
 
-    window.addEventListener('storage', handleStorage)
+    window.addEventListener('storage', handleStorage);
 
     return () => {
-      window.clearInterval(intervalId)
-      window.removeEventListener('storage', handleStorage)
-    }
-  }, [selectedLevelId, syncDraftState])
+      window.clearInterval(intervalId);
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, [selectedLevelId, syncDraftState]);
 
   useEffect(() => {
     // Reset preview mode when switching levels.
-    setSelectedPreviewColor('')
-    setPreviewProcessing(false)
-    setPreviewError('')
-    setPreviewHasRun(false)
-    setPreviewWindows([])
-    setPreviewBoardWidth(0)
-    setPreviewBoardHeight(0)
-    setPreviewCroppedBackgroundUrl('')
-    setPreviewProcessedBackgroundUrl('')
-    setPreviewCandidateRows([])
-    setPreviewSaving(false)
-    setPreviewSaveNote('')
-    setSelectedCandidateKey('')
-  }, [selectedLevelId])
+    setSelectedPreviewColor('');
+    setPreviewProcessing(false);
+    setPreviewError('');
+    setPreviewHasRun(false);
+    setPreviewWindows([]);
+    setPreviewBoardWidth(0);
+    setPreviewBoardHeight(0);
+    setPreviewCroppedBackgroundUrl('');
+    setPreviewProcessedBackgroundUrl('');
+    setPreviewCandidateRows([]);
+    setPreviewSaving(false);
+    setPreviewSaveNote('');
+    setSelectedCandidateKey('');
+  }, [selectedLevelId]);
 
   const boardWidth = useMemo(
     () => safeDimension(selectedLevel?.board_width),
     [selectedLevel?.board_width],
-  )
+  );
   const boardHeight = useMemo(
     () => safeDimension(selectedLevel?.board_height),
     [selectedLevel?.board_height],
-  )
+  );
 
-  const windows = Array.isArray(selectedLevel?.windows) ? selectedLevel.windows : []
-  const originalImageUrl = selectedLevel?.original_background_url || selectedLevel?.background_url || ''
-  const colorDecision = selectedLevel?.color_decision && typeof selectedLevel.color_decision === 'object'
-    ? selectedLevel.color_decision
-    : null
+  const windows = Array.isArray(selectedLevel?.windows) ? selectedLevel.windows : [];
+  const originalImageUrl =
+    selectedLevel?.original_background_url || selectedLevel?.background_url || '';
+  const colorDecision =
+    selectedLevel?.color_decision && typeof selectedLevel.color_decision === 'object'
+      ? selectedLevel.color_decision
+      : null;
   const selectedWindows = Array.isArray(colorDecision?.selected_windows)
     ? colorDecision.selected_windows
-    : []
-  const reviewWindows = windows.length > 0 ? windows : selectedWindows
+    : [];
+  const reviewWindows = windows.length > 0 ? windows : selectedWindows;
   const supportedKeyColors = (() => {
-    if (Array.isArray(colorDecision?.supported_key_colors) && colorDecision.supported_key_colors.length > 0) {
-      return colorDecision.supported_key_colors
+    if (
+      Array.isArray(colorDecision?.supported_key_colors) &&
+      colorDecision.supported_key_colors.length > 0
+    ) {
+      return colorDecision.supported_key_colors;
     }
-    if (Array.isArray(selectedLevel?.candidate_key_colors) && selectedLevel.candidate_key_colors.length > 0) {
-      return selectedLevel.candidate_key_colors
+    if (
+      Array.isArray(selectedLevel?.candidate_key_colors) &&
+      selectedLevel.candidate_key_colors.length > 0
+    ) {
+      return selectedLevel.candidate_key_colors;
     }
-    if (Array.isArray(colorDecision?.candidate_key_colors) && colorDecision.candidate_key_colors.length > 0) {
-      return colorDecision.candidate_key_colors
+    if (
+      Array.isArray(colorDecision?.candidate_key_colors) &&
+      colorDecision.candidate_key_colors.length > 0
+    ) {
+      return colorDecision.candidate_key_colors;
     }
-    return []
-  })()
+    return [];
+  })();
   const candidateScores = Array.isArray(colorDecision?.candidate_scores)
     ? colorDecision.candidate_scores
-    : []
+    : [];
   const boundaryDetectedColor = String(
-    colorDecision?.boundary_color
-    || selectedLevel?.boundary_color
-    || '',
-  ).toUpperCase()
+    colorDecision?.boundary_color || selectedLevel?.boundary_color || '',
+  ).toUpperCase();
 
   useEffect(() => {
-    setSelectedCandidateKey(String(colorDecision?.selected_key_color || ''))
-  }, [colorDecision?.selected_key_color, selectedLevelId])
+    setSelectedCandidateKey(String(colorDecision?.selected_key_color || ''));
+  }, [colorDecision?.selected_key_color, selectedLevelId]);
 
   function rgbToHex(r, g, b) {
-    const toHex = (value) => Math.max(0, Math.min(255, value)).toString(16).padStart(2, '0')
-    return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase()
+    const toHex = (value) => Math.max(0, Math.min(255, value)).toString(16).padStart(2, '0');
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
   }
 
   function calculatePreviewScore(candidateWindows, width, height) {
-    if (!Array.isArray(candidateWindows) || candidateWindows.length === 0) return 0
-    const imageArea = Math.max(1, width * height)
-    const areas = candidateWindows.map((win) => Number(win.width || 0) * Number(win.height || 0))
-    const totalArea = areas.reduce((sum, area) => sum + area, 0)
-    const largestArea = Math.max(...areas, 0)
-    const windowCount = candidateWindows.length
+    if (!Array.isArray(candidateWindows) || candidateWindows.length === 0) return 0;
+    const imageArea = Math.max(1, width * height);
+    const areas = candidateWindows.map((win) => Number(win.width || 0) * Number(win.height || 0));
+    const totalArea = areas.reduce((sum, area) => sum + area, 0);
+    const largestArea = Math.max(...areas, 0);
+    const windowCount = candidateWindows.length;
 
-    if (largestArea > imageArea * 0.45) return 0
-    if (totalArea < 1000) return 0
+    if (largestArea > imageArea * 0.45) return 0;
+    if (totalArea < 1000) return 0;
 
-    const countFactor = windowCount >= 4 && windowCount <= 30 ? 1.0 : 0.55
-    return totalArea * countFactor - largestArea * 0.25
+    const countFactor = windowCount >= 4 && windowCount <= 30 ? 1.0 : 0.55;
+    return totalArea * countFactor - largestArea * 0.25;
   }
 
   function upsertPreviewCandidate(keyColor, values = {}) {
     setPreviewCandidateRows((prev) => {
-      const next = prev.filter((row) => String(row.key_color || '').toUpperCase() !== keyColor)
+      const next = prev.filter((row) => String(row.key_color || '').toUpperCase() !== keyColor);
       next.push({
         key_color: keyColor,
         score: null,
@@ -353,16 +370,16 @@ export default function ReviewPage() {
         largest_area: null,
         preview_status: 'pending',
         ...values,
-      })
-      return next
-    })
+      });
+      return next;
+    });
   }
 
   async function runPreviewReprocess(color) {
-    if (!originalImageUrl) return
-    setPreviewProcessing(true)
-    setPreviewError('')
-    upsertPreviewCandidate(color, { preview_status: 'processing' })
+    if (!originalImageUrl) return;
+    setPreviewProcessing(true);
+    setPreviewError('');
+    upsertPreviewCandidate(color, { preview_status: 'processing' });
 
     try {
       const response = await fetch('/serve-assets', {
@@ -373,33 +390,39 @@ export default function ReviewPage() {
           window_key_color: color,
           character_descriptions: [],
         }),
-      })
+      });
       if (!response.ok) {
-        throw new Error(`Preview reprocess failed (${response.status})`)
+        throw new Error(`Preview reprocess failed (${response.status})`);
       }
 
-      const payload = await response.json()
-      const windowsFromPreview = Array.isArray(payload.windows) ? payload.windows : []
+      const payload = await response.json();
+      const windowsFromPreview = Array.isArray(payload.windows) ? payload.windows : [];
       const totalArea = windowsFromPreview.reduce(
         (sum, win) => sum + Number(win.width || 0) * Number(win.height || 0),
         0,
-      )
+      );
       const largestArea = windowsFromPreview.reduce(
         (largest, win) => Math.max(largest, Number(win.width || 0) * Number(win.height || 0)),
         0,
-      )
-      const previewWidth = Number(payload.board_width)
-      const previewHeight = Number(payload.board_height)
-      const resolvedPreviewWidth = Number.isFinite(previewWidth) && previewWidth > 0 ? previewWidth : boardWidth
-      const resolvedPreviewHeight = Number.isFinite(previewHeight) && previewHeight > 0 ? previewHeight : boardHeight
-      const score = calculatePreviewScore(windowsFromPreview, resolvedPreviewWidth, resolvedPreviewHeight)
+      );
+      const previewWidth = Number(payload.board_width);
+      const previewHeight = Number(payload.board_height);
+      const resolvedPreviewWidth =
+        Number.isFinite(previewWidth) && previewWidth > 0 ? previewWidth : boardWidth;
+      const resolvedPreviewHeight =
+        Number.isFinite(previewHeight) && previewHeight > 0 ? previewHeight : boardHeight;
+      const score = calculatePreviewScore(
+        windowsFromPreview,
+        resolvedPreviewWidth,
+        resolvedPreviewHeight,
+      );
 
-      setPreviewHasRun(true)
-      setPreviewWindows(windowsFromPreview)
-      setPreviewBoardWidth(resolvedPreviewWidth)
-      setPreviewBoardHeight(resolvedPreviewHeight)
-      setPreviewCroppedBackgroundUrl(payload.cropped_background_url || '')
-      setPreviewProcessedBackgroundUrl(payload.processed_background_url || '')
+      setPreviewHasRun(true);
+      setPreviewWindows(windowsFromPreview);
+      setPreviewBoardWidth(resolvedPreviewWidth);
+      setPreviewBoardHeight(resolvedPreviewHeight);
+      setPreviewCroppedBackgroundUrl(payload.cropped_background_url || '');
+      setPreviewProcessedBackgroundUrl(payload.processed_background_url || '');
       upsertPreviewCandidate(color, {
         score,
         window_count: windowsFromPreview.length,
@@ -407,94 +430,114 @@ export default function ReviewPage() {
         total_area: totalArea,
         largest_area: largestArea,
         preview_status: 'ready',
-      })
-      setSelectedCandidateKey(color)
+      });
+      setSelectedCandidateKey(color);
     } catch (err) {
-      setPreviewHasRun(false)
-      setPreviewWindows([])
-      setPreviewBoardWidth(0)
-      setPreviewBoardHeight(0)
-      setPreviewCroppedBackgroundUrl('')
-      setPreviewProcessedBackgroundUrl('')
-      setPreviewError(err.message)
-      upsertPreviewCandidate(color, { preview_status: 'error' })
+      setPreviewHasRun(false);
+      setPreviewWindows([]);
+      setPreviewBoardWidth(0);
+      setPreviewBoardHeight(0);
+      setPreviewCroppedBackgroundUrl('');
+      setPreviewProcessedBackgroundUrl('');
+      setPreviewError(err.message);
+      upsertPreviewCandidate(color, { preview_status: 'error' });
     } finally {
-      setPreviewProcessing(false)
+      setPreviewProcessing(false);
     }
   }
 
   function handleOriginalImageClick(event) {
-    const img = event.currentTarget
-    if (!img || !img.naturalWidth || !img.naturalHeight) return
+    const img = event.currentTarget;
+    if (!img || !img.naturalWidth || !img.naturalHeight) return;
 
-    const rect = img.getBoundingClientRect()
-    if (!rect.width || !rect.height) return
+    const rect = img.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
 
-    const clickX = event.clientX - rect.left
-    const clickY = event.clientY - rect.top
-    const pixelX = Math.max(0, Math.min(img.naturalWidth - 1, Math.round((clickX / rect.width) * (img.naturalWidth - 1))))
-    const pixelY = Math.max(0, Math.min(img.naturalHeight - 1, Math.round((clickY / rect.height) * (img.naturalHeight - 1))))
+    const clickX = event.clientX - rect.left;
+    const clickY = event.clientY - rect.top;
+    const pixelX = Math.max(
+      0,
+      Math.min(img.naturalWidth - 1, Math.round((clickX / rect.width) * (img.naturalWidth - 1))),
+    );
+    const pixelY = Math.max(
+      0,
+      Math.min(img.naturalHeight - 1, Math.round((clickY / rect.height) * (img.naturalHeight - 1))),
+    );
 
-    const canvas = document.createElement('canvas')
-    canvas.width = img.naturalWidth
-    canvas.height = img.naturalHeight
-    const ctx = canvas.getContext('2d', { willReadFrequently: true })
-    if (!ctx) return
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return;
 
-    ctx.drawImage(img, 0, 0)
-    const data = ctx.getImageData(pixelX, pixelY, 1, 1).data
-    const hex = rgbToHex(data[0], data[1], data[2])
-    setSelectedPreviewColor(hex)
-    runPreviewReprocess(hex)
+    ctx.drawImage(img, 0, 0);
+    const data = ctx.getImageData(pixelX, pixelY, 1, 1).data;
+    const hex = rgbToHex(data[0], data[1], data[2]);
+    setSelectedPreviewColor(hex);
+    runPreviewReprocess(hex);
   }
 
   const displayCandidates = (() => {
-    const mergedByColor = new Map()
+    const mergedByColor = new Map();
 
     for (const candidate of candidateScores) {
-      const keyColor = String(candidate?.key_color || '').toUpperCase()
-      if (!keyColor) continue
-      mergedByColor.set(keyColor, { ...candidate, key_color: keyColor })
+      const keyColor = String(candidate?.key_color || '').toUpperCase();
+      if (!keyColor) continue;
+      mergedByColor.set(keyColor, { ...candidate, key_color: keyColor });
     }
 
     // Preview rows should override saved rows for the same key color.
     for (const candidate of previewCandidateRows) {
-      const keyColor = String(candidate?.key_color || '').toUpperCase()
-      if (!keyColor) continue
-      mergedByColor.set(keyColor, { ...candidate, key_color: keyColor })
+      const keyColor = String(candidate?.key_color || '').toUpperCase();
+      if (!keyColor) continue;
+      mergedByColor.set(keyColor, { ...candidate, key_color: keyColor });
     }
 
-    return Array.from(mergedByColor.values())
-  })()
-  const activeCandidate = displayCandidates.find(
-    (candidate) => String(candidate?.key_color || '').toUpperCase() === String(selectedCandidateKey || '').toUpperCase(),
-  ) || null
-  const activeCandidateWindows = Array.isArray(activeCandidate?.windows) ? activeCandidate.windows : []
-  const highlightedWindows = activeCandidateWindows.length > 0
-    ? [...activeCandidateWindows]
-      .sort((left, right) => {
-        const leftArea = Number(left?.width || 0) * Number(left?.height || 0)
-        const rightArea = Number(right?.width || 0) * Number(right?.height || 0)
-        return rightArea - leftArea
-      })
-      .slice(0, 5)
-    : []
-  const displayWindows = highlightedWindows.length > 0
-    ? highlightedWindows
-    : (previewHasRun ? previewWindows : reviewWindows)
-  const activePreviewCandidate = previewCandidateRows.find(
-    (row) => String(row?.key_color || '').toUpperCase() === String(selectedPreviewColor || '').toUpperCase(),
-  ) || null
+    return Array.from(mergedByColor.values());
+  })();
+  const activeCandidate =
+    displayCandidates.find(
+      (candidate) =>
+        String(candidate?.key_color || '').toUpperCase() ===
+        String(selectedCandidateKey || '').toUpperCase(),
+    ) || null;
+  const activeCandidateWindows = Array.isArray(activeCandidate?.windows)
+    ? activeCandidate.windows
+    : [];
+  const highlightedWindows =
+    activeCandidateWindows.length > 0
+      ? [...activeCandidateWindows]
+          .sort((left, right) => {
+            const leftArea = Number(left?.width || 0) * Number(left?.height || 0);
+            const rightArea = Number(right?.width || 0) * Number(right?.height || 0);
+            return rightArea - leftArea;
+          })
+          .slice(0, 5)
+      : [];
+  const displayWindows =
+    highlightedWindows.length > 0
+      ? highlightedWindows
+      : previewHasRun
+        ? previewWindows
+        : reviewWindows;
+  const activePreviewCandidate =
+    previewCandidateRows.find(
+      (row) =>
+        String(row?.key_color || '').toUpperCase() ===
+        String(selectedPreviewColor || '').toUpperCase(),
+    ) || null;
   const croppedImageUrl = previewHasRun
-    ? (previewCroppedBackgroundUrl || selectedLevel?.cropped_background_url || originalImageUrl)
-    : (selectedLevel?.cropped_background_url || originalImageUrl)
-  const previewDisplayBoardWidth = previewHasRun ? (previewBoardWidth || boardWidth) : boardWidth
-  const previewDisplayBoardHeight = previewHasRun ? (previewBoardHeight || boardHeight) : boardHeight
+    ? previewCroppedBackgroundUrl || selectedLevel?.cropped_background_url || originalImageUrl
+    : selectedLevel?.cropped_background_url || originalImageUrl;
+  const previewDisplayBoardWidth = previewHasRun ? previewBoardWidth || boardWidth : boardWidth;
+  const previewDisplayBoardHeight = previewHasRun ? previewBoardHeight || boardHeight : boardHeight;
   const transformedImageUrl = previewHasRun
-    ? (previewProcessedBackgroundUrl || originalImageUrl)
-    : (selectedLevel?.background_url || '')
-  const spriteUrls = Array.isArray(selectedLevel?.sprite_urls) ? selectedLevel.sprite_urls : []
-  const monstersMeta = Array.isArray(selectedLevel?.monsters_meta) ? selectedLevel.monsters_meta : []
+    ? previewProcessedBackgroundUrl || originalImageUrl
+    : selectedLevel?.background_url || '';
+  const spriteUrls = Array.isArray(selectedLevel?.sprite_urls) ? selectedLevel.sprite_urls : [];
+  const monstersMeta = Array.isArray(selectedLevel?.monsters_meta)
+    ? selectedLevel.monsters_meta
+    : [];
   const spriteEntries = Array.from(
     { length: Math.max(spriteUrls.length, monstersMeta.length) },
     (_, index) => ({
@@ -502,31 +545,31 @@ export default function ReviewPage() {
       monster: monstersMeta[index] || null,
       index,
     }),
-  )
+  );
 
   async function applyPreviewPermanent() {
     if (!selectedLevelId || selectedLevelId === REVIEW_DRAFT_ID) {
-      setPreviewSaveNote('Draft entries in local storage cannot be persisted to backend levels.')
-      return
+      setPreviewSaveNote('Draft entries in local storage cannot be persisted to backend levels.');
+      return;
     }
     if (!previewHasRun || !previewProcessedBackgroundUrl || !selectedPreviewColor) {
-      setPreviewSaveNote('Run a preview first, then apply it.')
-      return
+      setPreviewSaveNote('Run a preview first, then apply it.');
+      return;
     }
 
-    setPreviewSaving(true)
-    setPreviewSaveNote('')
+    setPreviewSaving(true);
+    setPreviewSaveNote('');
     try {
       const previewCandidate = activePreviewCandidate
         ? {
-          key_color: selectedPreviewColor,
-          score: activePreviewCandidate.score,
-          window_count: activePreviewCandidate.window_count,
-          windows: activePreviewCandidate.windows,
-          total_area: activePreviewCandidate.total_area,
-          largest_area: activePreviewCandidate.largest_area,
-        }
-        : null
+            key_color: selectedPreviewColor,
+            score: activePreviewCandidate.score,
+            window_count: activePreviewCandidate.window_count,
+            windows: activePreviewCandidate.windows,
+            total_area: activePreviewCandidate.total_area,
+            largest_area: activePreviewCandidate.largest_area,
+          }
+        : null;
 
       const response = await fetch(`/levels/${selectedLevelId}/apply-preview`, {
         method: 'PUT',
@@ -538,71 +581,70 @@ export default function ReviewPage() {
           processed_background_url: previewProcessedBackgroundUrl,
           preview_candidate: previewCandidate,
         }),
-      })
+      });
 
       if (!response.ok) {
-        throw new Error(`Could not persist preview (${response.status})`)
+        throw new Error(`Could not persist preview (${response.status})`);
       }
 
-      const updatedLevel = await response.json()
-      setSelectedLevel(updatedLevel)
-      setPreviewHasRun(false)
-      setPreviewWindows([])
-      setPreviewBoardWidth(0)
-      setPreviewBoardHeight(0)
-      setPreviewCroppedBackgroundUrl('')
-      setPreviewProcessedBackgroundUrl('')
-      setPreviewCandidateRows([])
-      setPreviewSaveNote('Preview applied permanently to this level.')
+      const updatedLevel = await response.json();
+      setSelectedLevel(updatedLevel);
+      setPreviewHasRun(false);
+      setPreviewWindows([]);
+      setPreviewBoardWidth(0);
+      setPreviewBoardHeight(0);
+      setPreviewCroppedBackgroundUrl('');
+      setPreviewProcessedBackgroundUrl('');
+      setPreviewCandidateRows([]);
+      setPreviewSaveNote('Preview applied permanently to this level.');
     } catch (err) {
-      setPreviewSaveNote(err.message)
+      setPreviewSaveNote(err.message);
     } finally {
-      setPreviewSaving(false)
+      setPreviewSaving(false);
     }
   }
 
   async function handleDeleteLevel(level) {
     if (!level?.id || deletingLevelId) {
-      return
+      return;
     }
 
-    const isDraft = level.id === REVIEW_DRAFT_ID
+    const isDraft = level.id === REVIEW_DRAFT_ID;
     const confirmed = window.confirm(
       isDraft
         ? 'Delete the local draft from the Review Portal?'
         : `Delete saved level "${level.title || 'Untitled'}"?`,
-    )
+    );
     if (!confirmed) {
-      return
+      return;
     }
 
-    setDeletingLevelId(level.id)
-    setError('')
+    setDeletingLevelId(level.id);
+    setError('');
 
     try {
       if (isDraft) {
-        localStorage.removeItem(REVIEW_DRAFT_KEY)
+        localStorage.removeItem(REVIEW_DRAFT_KEY);
       } else {
-        const response = await fetch(`/levels/${level.id}`, { method: 'DELETE' })
+        const response = await fetch(`/levels/${level.id}`, { method: 'DELETE' });
         if (!response.ok) {
-          throw new Error(`Could not delete level ${level.id} (${response.status})`)
+          throw new Error(`Could not delete level ${level.id} (${response.status})`);
         }
       }
 
-      const currentIndex = levels.findIndex((entry) => entry.id === level.id)
-      const fallbackLevel = currentIndex >= 0
-        ? (levels[currentIndex + 1] || levels[currentIndex - 1] || null)
-        : null
+      const currentIndex = levels.findIndex((entry) => entry.id === level.id);
+      const fallbackLevel =
+        currentIndex >= 0 ? levels[currentIndex + 1] || levels[currentIndex - 1] || null : null;
 
       if (selectedLevelId === level.id) {
-        setSelectedLevel(null)
+        setSelectedLevel(null);
       }
 
-      await loadLevels(fallbackLevel?.id || '')
+      await loadLevels(fallbackLevel?.id || '');
     } catch (err) {
-      setError(err.message)
+      setError(err.message);
     } finally {
-      setDeletingLevelId('')
+      setDeletingLevelId('');
     }
   }
 
@@ -611,7 +653,9 @@ export default function ReviewPage() {
       <aside className="review-sidebar">
         <h2>Saved Levels</h2>
         {loadingLevels && <p className="review-empty">Loading levels...</p>}
-        {!loadingLevels && levels.length === 0 && <p className="review-empty">No saved levels yet.</p>}
+        {!loadingLevels && levels.length === 0 && (
+          <p className="review-empty">No saved levels yet.</p>
+        )}
         <div className="review-level-list">
           {levels.map((level) => (
             <div
@@ -627,11 +671,15 @@ export default function ReviewPage() {
                 <span className="review-level-meta">
                   {level.theme || 'unknown theme'}
                   {typeof level.version === 'number' ? ` | v${level.version}` : ''}
-                  {typeof level.versions_count === 'number' && level.versions_count > 1 ? ` (${level.versions_count} versions)` : ''}
+                  {typeof level.versions_count === 'number' && level.versions_count > 1
+                    ? ` (${level.versions_count} versions)`
+                    : ''}
                   {' | '}
                   {level.updated_at
                     ? new Date(level.updated_at).toLocaleString()
-                    : (level.created_at ? new Date(level.created_at).toLocaleString() : 'unknown date')}
+                    : level.created_at
+                      ? new Date(level.created_at).toLocaleString()
+                      : 'unknown date'}
                 </span>
               </button>
               <button
@@ -661,10 +709,12 @@ export default function ReviewPage() {
               <p>Level ID: {selectedLevel.id || selectedLevelId}</p>
               <p>Window key color: {selectedLevel.window_key_color || 'not provided'}</p>
               <p>
-                View mode: {selectedLevelId === REVIEW_DRAFT_ID ? 'Draft (local only)' : 'Saved level'}
+                View mode:{' '}
+                {selectedLevelId === REVIEW_DRAFT_ID ? 'Draft (local only)' : 'Saved level'}
               </p>
               <p>
-                Board: {boardWidth}x{boardHeight} | Windows: {windows.length} | Sprites: {spriteUrls.filter(Boolean).length}/{spriteUrls.length}
+                Board: {boardWidth}x{boardHeight} | Windows: {windows.length} | Sprites:{' '}
+                {spriteUrls.filter(Boolean).length}/{spriteUrls.length}
               </p>
               {selectedLevelId !== REVIEW_DRAFT_ID && selectedLevel?.id && (
                 <p>
@@ -684,15 +734,23 @@ export default function ReviewPage() {
                 <>
                   <p className="review-color-row">
                     Colors sent to model:
-                    {supportedKeyColors.length > 0
-                      ? supportedKeyColors.map((color) => <ColorChip key={`supported-${color}`} color={color} />)
-                      : <ColorChip color="" />}
+                    {supportedKeyColors.length > 0 ? (
+                      supportedKeyColors.map((color) => (
+                        <ColorChip key={`supported-${color}`} color={color} />
+                      ))
+                    ) : (
+                      <ColorChip color="" />
+                    )}
                   </p>
                   <p className="review-color-row">
-                    Model suggested (theme step): <ColorChip color={colorDecision.model_returned_key_color} />
-                    {!colorDecision.model_returned_supported && colorDecision.model_returned_key_color
-                      ? <span className="review-color-note">(not in supported set, fallback applied)</span>
-                      : null}
+                    Model suggested (theme step):{' '}
+                    <ColorChip color={colorDecision.model_returned_key_color} />
+                    {!colorDecision.model_returned_supported &&
+                    colorDecision.model_returned_key_color ? (
+                      <span className="review-color-note">
+                        (not in supported set, fallback applied)
+                      </span>
+                    ) : null}
                   </p>
                   <p className="review-color-row">
                     Boundary color detected: <ColorChip color={boundaryDetectedColor} />
@@ -701,10 +759,17 @@ export default function ReviewPage() {
                     Backend selected: <ColorChip color={colorDecision.selected_key_color} />
                   </p>
                   <p className="review-color-row">
-                    Final mask removal color: <ColorChip color={colorDecision.final_mask_removal_color || selectedLevel.window_key_color} />
+                    Final mask removal color:{' '}
+                    <ColorChip
+                      color={
+                        colorDecision.final_mask_removal_color || selectedLevel.window_key_color
+                      }
+                    />
                   </p>
                   {typeof colorDecision.attempt === 'number' && (
-                    <p className="review-color-detail">Accepted on attempt: {colorDecision.attempt}</p>
+                    <p className="review-color-detail">
+                      Accepted on attempt: {colorDecision.attempt}
+                    </p>
                   )}
                   {typeof colorDecision.selected_window_count === 'number' && (
                     <p className="review-color-detail">
@@ -720,7 +785,11 @@ export default function ReviewPage() {
                   <div className="review-preview-controls">
                     <p className="review-color-row">
                       Preview color from original image:
-                      {selectedPreviewColor ? <ColorChip color={selectedPreviewColor} /> : <span className="review-empty">Click the original image</span>}
+                      {selectedPreviewColor ? (
+                        <ColorChip color={selectedPreviewColor} />
+                      ) : (
+                        <span className="review-empty">Click the original image</span>
+                      )}
                     </p>
                     <button
                       type="button"
@@ -734,11 +803,11 @@ export default function ReviewPage() {
                       type="button"
                       className="review-reprocess-btn"
                       disabled={
-                        !previewHasRun
-                        || !selectedPreviewColor
-                        || previewProcessing
-                        || previewSaving
-                        || selectedLevelId === REVIEW_DRAFT_ID
+                        !previewHasRun ||
+                        !selectedPreviewColor ||
+                        previewProcessing ||
+                        previewSaving ||
+                        selectedLevelId === REVIEW_DRAFT_ID
                       }
                       onClick={applyPreviewPermanent}
                     >
@@ -746,7 +815,13 @@ export default function ReviewPage() {
                     </button>
                     {previewError && <p className="error">Preview error: {previewError}</p>}
                     {previewSaveNote && (
-                      <p className={previewSaveNote.startsWith('Preview applied') ? 'review-preview-note' : 'error'}>
+                      <p
+                        className={
+                          previewSaveNote.startsWith('Preview applied')
+                            ? 'review-preview-note'
+                            : 'error'
+                        }
+                      >
                         {previewSaveNote}
                       </p>
                     )}
@@ -766,8 +841,11 @@ export default function ReviewPage() {
                         </thead>
                         <tbody>
                           {displayCandidates.map((candidate, index) => {
-                            const keyColor = String(candidate?.key_color || '')
-                            const isSelected = keyColor && keyColor.toUpperCase() === String(selectedCandidateKey || '').toUpperCase()
+                            const keyColor = String(candidate?.key_color || '');
+                            const isSelected =
+                              keyColor &&
+                              keyColor.toUpperCase() ===
+                                String(selectedCandidateKey || '').toUpperCase();
                             return (
                               <tr
                                 key={`candidate-${keyColor || index}`}
@@ -776,14 +854,20 @@ export default function ReviewPage() {
                               >
                                 <td>
                                   <ColorChip color={keyColor} />
-                                  {candidate?.preview_status && <span className="review-preview-badge">preview</span>}
+                                  {candidate?.preview_status && (
+                                    <span className="review-preview-badge">preview</span>
+                                  )}
                                 </td>
-                                <td>{typeof candidate?.score === 'number' ? candidate.score.toFixed(1) : 'n/a'}</td>
+                                <td>
+                                  {typeof candidate?.score === 'number'
+                                    ? candidate.score.toFixed(1)
+                                    : 'n/a'}
+                                </td>
                                 <td>{candidate?.window_count ?? 'n/a'}</td>
                                 <td>{candidate?.total_area ?? 'n/a'}</td>
                                 <td>{candidate?.largest_area ?? 'n/a'}</td>
                               </tr>
-                            )
+                            );
                           })}
                         </tbody>
                       </table>
@@ -833,25 +917,29 @@ export default function ReviewPage() {
 
             <section className="review-sprites">
               <h3>Sprite Selection</h3>
-              {spriteEntries.length === 0 && <p className="review-empty">No sprites available for this level.</p>}
+              {spriteEntries.length === 0 && (
+                <p className="review-empty">No sprites available for this level.</p>
+              )}
               {spriteEntries.length > 0 && (
                 <div className="review-sprite-grid">
                   {spriteEntries.map(({ spriteUrl, monster, index }) => {
-                    const name = monster?.name || `Generated Sprite ${index + 1}`
-                    const flavor = monster?.flavor || ''
+                    const name = monster?.name || `Generated Sprite ${index + 1}`;
+                    const flavor = monster?.flavor || '';
 
                     return (
                       <article key={`review-slot-${index}`} className="review-sprite-card">
                         <div className="review-sprite-preview">
-                          {spriteUrl ? <img src={spriteUrl} alt={name} /> : <span className="review-empty">No sprite</span>}
+                          {spriteUrl ? (
+                            <img src={spriteUrl} alt={name} />
+                          ) : (
+                            <span className="review-empty">No sprite</span>
+                          )}
                         </div>
                         <p className="review-sprite-name">{name}</p>
                         {flavor && <p className="review-sprite-flavor">{flavor}</p>}
-                        <p className="review-sprite-window">
-                          Sprite index {index + 1}
-                        </p>
+                        <p className="review-sprite-window">Sprite index {index + 1}</p>
                       </article>
-                    )
+                    );
                   })}
                 </div>
               )}
@@ -860,5 +948,5 @@ export default function ReviewPage() {
         )}
       </main>
     </div>
-  )
+  );
 }
