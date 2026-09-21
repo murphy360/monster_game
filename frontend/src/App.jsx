@@ -24,6 +24,18 @@ function formatSeconds(totalSeconds) {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
+function normalizeDifficulty(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  return raw === 'easy' || raw === 'hard' ? raw : null;
+}
+
+function formatDifficultyLabel(value) {
+  const normalized = normalizeDifficulty(value);
+  if (normalized === 'easy') return 'Easy';
+  if (normalized === 'hard') return 'Hard';
+  return 'None';
+}
+
 export default function App() {
   const pathname = typeof window !== 'undefined' ? window.location.pathname : '/';
   const queryLevelId =
@@ -117,7 +129,8 @@ export default function App() {
     };
   }, [loading]);
 
-  async function handleGenerateLevel() {
+  async function handleGenerateLevel(difficulty) {
+    const normalizedDifficulty = normalizeDifficulty(difficulty);
     setLoading(true);
     setError(null);
     setLevelData(null);
@@ -136,6 +149,7 @@ export default function App() {
     updateReviewDraft({
       sprite_urls: [],
       monsters_meta: [],
+      difficulty: normalizedDifficulty,
       windows: [],
       background_url: '',
       original_background_url: '',
@@ -146,7 +160,12 @@ export default function App() {
     });
     try {
       console.log('🎮 Starting level generation request...');
-      const requestPayload = { theme, generate_images: true, making_sausage: makingSausage };
+      const requestPayload = {
+        theme,
+        generate_images: true,
+        making_sausage: makingSausage,
+        difficulty: normalizedDifficulty,
+      };
       console.log('🚀 Request payload:', requestPayload);
       const res = await fetch('/generate-level', {
         method: 'POST',
@@ -172,6 +191,7 @@ export default function App() {
           console.log(`✅ Stream ended. Total events received: ${eventCount}`);
           console.table({
             Requests: 'making_sausage=' + makingSausage,
+            Difficulty: normalizedDifficulty || 'none',
             Events: eventCount,
           });
           break;
@@ -259,6 +279,7 @@ export default function App() {
 
               updateReviewDraft({
                 ...payload,
+                difficulty: normalizeDifficulty(payload.difficulty) || normalizedDifficulty,
                 generation_phase: payload.manual_selection_required ? 'manual-selection' : 'layout',
               });
 
@@ -434,9 +455,22 @@ export default function App() {
                 placeholder="Enter level theme…"
                 className="theme-input"
               />
-              <button onClick={handleGenerateLevel} disabled={loading} className="generate-btn">
-                {loading ? 'Generating…' : 'Generate Level'}
-              </button>
+              <div className="difficulty-button-group" role="group" aria-label="Generate level difficulty">
+                <button
+                  onClick={() => handleGenerateLevel('easy')}
+                  disabled={loading}
+                  className="generate-btn difficulty-easy-btn"
+                >
+                  {loading ? 'Generating…' : 'Easy'}
+                </button>
+                <button
+                  onClick={() => handleGenerateLevel('hard')}
+                  disabled={loading}
+                  className="generate-btn difficulty-hard-btn"
+                >
+                  {loading ? 'Generating…' : 'Hard'}
+                </button>
+              </div>
               <label className="making-sausage-toggle">
                 <input
                   type="checkbox"
@@ -478,6 +512,7 @@ export default function App() {
               <span className="level-card-title">{lvl.title}</span>
               <span className="level-card-meta">
                 {lvl.theme} &mdash; v{lvl.version ?? 1}
+                {' | '}difficulty {formatDifficultyLabel(lvl.difficulty)}
                 {typeof lvl.versions_count === 'number' && lvl.versions_count > 1
                   ? ` (${lvl.versions_count} versions)`
                   : ''}

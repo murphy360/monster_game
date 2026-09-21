@@ -100,6 +100,27 @@ body {
   background: #c73652;
 }
 
+.difficulty-button-group {
+  display: inline-flex;
+  gap: 0.45rem;
+}
+
+.difficulty-easy-btn {
+  background: #2f8451;
+}
+
+.difficulty-easy-btn:not(:disabled):hover {
+  background: #276f44;
+}
+
+.difficulty-hard-btn {
+  background: #a83a2d;
+}
+
+.difficulty-hard-btn:not(:disabled):hover {
+  background: #8f2f24;
+}
+
 .secondary-btn {
   background: #243762;
 }

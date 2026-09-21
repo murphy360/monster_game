@@ -78,8 +78,24 @@ class GeminiAdapter(AIGenerator):
     # Public interface
     # ------------------------------------------------------------------
 
-    async def generate_level_config(self, theme: str) -> dict[str, Any]:
+    async def generate_level_config(
+        self,
+        theme: str,
+        min_windows: int | None = None,
+        max_windows: int | None = None,
+    ) -> dict[str, Any]:
         """Ask Gemini to produce a JSON level configuration."""
+        min_count = min_windows if isinstance(min_windows, int) and min_windows > 0 else None
+        max_count = max_windows if isinstance(max_windows, int) and max_windows > 0 else None
+        if min_count is not None and max_count is not None:
+            window_instruction = f"{min_count}-{max_count} windows"
+        elif min_count is not None:
+            window_instruction = f"at least {min_count} windows"
+        elif max_count is not None:
+            window_instruction = f"up to {max_count} windows"
+        else:
+            window_instruction = "6-8 windows"
+
         prompt = (
             f"You are a game designer for a whack-a-mole style monster game.\n"
             f"Theme: {theme}\n\n"
@@ -88,7 +104,7 @@ class GeminiAdapter(AIGenerator):
             '  "title": "<level name>",\n'
             '  "windows": [\n'
             '    {"id": 1, "x": <int>, "y": <int>, "width": <int>, "height": <int>},\n'
-            "    ... (6-8 windows, coordinates fit a 1280x720 canvas)\n"
+            f"    ... ({window_instruction}, coordinates fit a 1280x720 canvas)\n"
             "  ],\n"
             '  "monster_names": ["<short spooky name for monster 1>", ...],\n'
             '  "monster_flavor": ["<one short punchy tagline for monster 1>", ...],\n'

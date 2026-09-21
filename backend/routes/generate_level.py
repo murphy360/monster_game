@@ -7,6 +7,7 @@ import json
 import logging
 import time
 from collections.abc import AsyncGenerator
+from math import ceil
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
@@ -26,6 +27,7 @@ class GenerateLevelRequest(BaseModel):
     theme: str = "haunted house"
     generate_images: bool = True
     making_sausage: bool = False
+    difficulty: str | None = None
 
 
 class WindowConfig(BaseModel):
@@ -43,6 +45,7 @@ class MonsterMeta(BaseModel):
 
 class GenerateLevelResponse(BaseModel):
     title: str
+    difficulty: str | None = None
     original_background_url: str | None = None
     cropped_background_url: str | None = None
     background_url: str
@@ -61,6 +64,38 @@ class GenerateLevelResponse(BaseModel):
 BOARD_WIDTH = 1280
 BOARD_HEIGHT = 720
 BACKGROUND_STALL_TIMEOUT_SECONDS = 20.0
+
+
+def _normalize_difficulty(value: str | None) -> str | None:
+    raw = str(value or "").strip().lower()
+    if raw in {"easy", "hard"}:
+        return raw
+    return None
+
+
+def _window_target_for_difficulty(difficulty: str | None) -> tuple[int | None, int]:
+    normalized = _normalize_difficulty(difficulty)
+    if normalized == "hard":
+        return 10, 15
+    return None, 8
+
+
+def _fit_windows_to_target(
+    windows: list[dict[str, int]],
+    min_windows: int | None,
+    max_windows: int,
+) -> list[dict[str, int]]:
+    if not windows:
+        return []
+
+    fitted = list(windows)
+    if len(fitted) > max_windows:
+        fitted = fitted[:max_windows]
+
+    if min_windows is not None and len(fitted) < min_windows:
+        return []
+
+    return fitted
 
 
 def _as_int(value: Any, default: int = 0) -> int:
@@ -199,17 +234,23 @@ async def generate_level(
         board_height = BOARD_HEIGHT
         sprite_urls: list[str] = []
         generation_warnings: list[str] = []
+        normalized_difficulty = _normalize_difficulty(request.difficulty)
+        min_windows, max_windows = _window_target_for_difficulty(normalized_difficulty)
 
         # ── Step 1: get level config (fast text call) ────────────────────
         try:
-            config = await ai.generate_level_config(request.theme)
+            config = await ai.generate_level_config(
+                request.theme,
+                min_windows=min_windows,
+                max_windows=max_windows,
+            )
         except Exception as exc:
             logger.warning("AI config generation failed; using fallback: %s", exc)
             generation_warnings.append("AI text generation failed; using fallback monsters.")
             config = _fallback_level_config(request.theme)
 
-        MIN_MONSTERS = 6
-        MAX_MONSTERS = 8
+        min_monsters = min_windows if min_windows is not None else max(4, ceil(max_windows * 0.75))
+        max_monsters = max_windows
 
         def _extract_monsters(
             cfg: dict[str, Any],
@@ -224,14 +265,18 @@ async def generate_level(
         descriptions, names, flavors = _extract_monsters(config)
 
         # If the first batch is short, request one more batch before background generation.
-        if len(descriptions) < MIN_MONSTERS:
+        if len(descriptions) < min_monsters:
             logger.info(
                 "Only got %d monsters (min=%d); requesting a second batch.",
                 len(descriptions),
-                MIN_MONSTERS,
+                min_monsters,
             )
             try:
-                extra_config = await ai.generate_level_config(request.theme)
+                extra_config = await ai.generate_level_config(
+                    request.theme,
+                    min_windows=min_windows,
+                    max_windows=max_windows,
+                )
                 extra_descriptions, extra_names, extra_flavors = _extract_monsters(extra_config)
                 descriptions.extend(extra_descriptions)
                 names.extend(extra_names)
@@ -240,15 +285,15 @@ async def generate_level(
                 logger.warning("Second monster batch failed: %s", exc)
 
         # Keep variety but cap the upper bound.
-        descriptions = descriptions[:MAX_MONSTERS]
-        names = names[:MAX_MONSTERS]
-        flavors = flavors[:MAX_MONSTERS]
+        descriptions = descriptions[:max_monsters]
+        names = names[:max_monsters]
+        flavors = flavors[:max_monsters]
 
         # If still short, pad to minimum so gameplay can continue.
         fallback_desc = "friendly cartoon monster peeking from a window"
-        if len(descriptions) < MIN_MONSTERS:
+        if len(descriptions) < min_monsters:
             last = descriptions[-1] if descriptions else fallback_desc
-            descriptions.extend([last] * (MIN_MONSTERS - len(descriptions)))
+            descriptions.extend([last] * (min_monsters - len(descriptions)))
 
         # For "Making Sausage" mode, reduce to 1 sprite for faster testing
         if request.making_sausage:
@@ -448,13 +493,29 @@ async def generate_level(
                 logger.warning("Window outlining failed; falling back to config windows: %s", exc)
                 outlined = {}
 
-        if not windows and isinstance(color_decision, dict):
+        selected_windows_normalized: list[dict[str, int]] = []
+        if isinstance(color_decision, dict):
             selected_windows = color_decision.get("selected_windows", [])
             if isinstance(selected_windows, list) and selected_windows:
-                windows = _normalize_windows(selected_windows, board_width, board_height)
+                selected_windows_normalized = _normalize_windows(selected_windows, board_width, board_height)
+
+        config_windows = _normalize_windows(config.get("windows", []), board_width, board_height)
+
+        outlined_windows = windows
+        candidate_windows = [
+            _fit_windows_to_target(outlined_windows, min_windows, max_windows),
+            _fit_windows_to_target(selected_windows_normalized, min_windows, max_windows),
+            _fit_windows_to_target(config_windows, min_windows, max_windows),
+        ]
+        windows = next((candidate for candidate in candidate_windows if candidate), [])
 
         if not windows:
-            windows = _normalize_windows(config.get("windows", []), board_width, board_height)
+            fallback_source = max(
+                [outlined_windows, selected_windows_normalized, config_windows],
+                key=lambda rows: len(rows),
+                default=[],
+            )
+            windows = _fit_windows_to_target(fallback_source, None, max_windows)
 
         title = config.get("title", request.theme)
         sprite_success_count = sum(1 for url in sprite_urls if url)
@@ -469,6 +530,7 @@ async def generate_level(
         # ── Step 5: emit layout so client can show the game board ────────
         layout_payload = {
             "title": title,
+            "difficulty": normalized_difficulty,
             "original_background_url": original_background_url,
             "cropped_background_url": cropped_background_url,
             "background_url": background_url,
@@ -489,6 +551,7 @@ async def generate_level(
         # ── Step 6: save then signal done ────────────────────────────────
         full_response = GenerateLevelResponse(
             title=title,
+            difficulty=normalized_difficulty,
             original_background_url=original_background_url,
             cropped_background_url=cropped_background_url or None,
             background_url=background_url,

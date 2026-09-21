@@ -16,6 +16,7 @@ class LevelSummary(BaseModel):
     id: str
     title: str
     theme: str
+    difficulty: str | None = None
     created_at: str
     updated_at: str | None = None
     version: int = 1

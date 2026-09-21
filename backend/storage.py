@@ -43,6 +43,13 @@ def _record_sort_key(record: dict[str, Any]) -> tuple[str, int]:
     return timestamp, version
 
 
+def _normalize_difficulty(value: Any) -> str | None:
+    raw = str(value or "").strip().lower()
+    if raw in {"easy", "hard"}:
+        return raw
+    return None
+
+
 def _load_level_records() -> list[tuple[str, dict[str, Any]]]:
     _ensure_dir()
     records: list[tuple[str, dict[str, Any]]] = []
@@ -96,6 +103,7 @@ def save_level(level_data: dict[str, Any], theme: str) -> str:
     record = {
         "id": level_id,
         "theme": theme,
+        "difficulty": _normalize_difficulty(level_data.get("difficulty")),
         "created_at": now_iso,
         "updated_at": now_iso,
         "title": title,
@@ -126,6 +134,7 @@ def list_levels() -> list[dict[str, Any]]:
                 "id": chosen.get("id", ""),
                 "title": chosen.get("title", "Untitled"),
                 "theme": chosen.get("theme", ""),
+                "difficulty": _normalize_difficulty(chosen.get("difficulty")),
                 "created_at": chosen.get("created_at", ""),
                 "updated_at": chosen.get("updated_at", chosen.get("created_at", "")),
                 "version": int(chosen.get("version") or 1),
@@ -173,6 +182,7 @@ def update_level(level_id: str, updates: dict[str, Any]) -> dict[str, Any] | Non
         record["title"] = title
         record["level_name_key"] = level_name_key
         record["version"] = int(record.get("version") or 1)
+        record["difficulty"] = _normalize_difficulty(record.get("difficulty"))
         record["updated_at"] = _utc_now_iso()
         record["is_current"] = True
 

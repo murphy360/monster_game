@@ -20,6 +20,18 @@ function safeDimension(value) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : FALLBACK_DIMENSION;
 }
 
+function normalizeDifficulty(value) {
+  const raw = String(value || '').trim().toLowerCase()
+  return raw === 'easy' || raw === 'hard' ? raw : null
+}
+
+function difficultyLabel(value) {
+  const normalized = normalizeDifficulty(value)
+  if (normalized === 'easy') return 'Easy'
+  if (normalized === 'hard') return 'Hard'
+  return 'None'
+}
+
 function WindowOverlay({ windows, boardWidth, boardHeight }) {
   if (!Array.isArray(windows) || windows.length === 0) {
     return null;
@@ -121,6 +133,7 @@ export default function ReviewPage() {
           id: REVIEW_DRAFT_ID,
           title: draft.title || 'Current Generation (In Progress)',
           theme: draft.theme || 'current generation',
+          difficulty: normalizeDifficulty(draft.difficulty),
           created_at: draft.created_at || '',
         },
         ...nextLevels,
@@ -143,6 +156,7 @@ export default function ReviewPage() {
           id: REVIEW_DRAFT_ID,
           title: draft.title || 'Current Generation (In Progress)',
           theme: draft.theme || 'current generation',
+          difficulty: normalizeDifficulty(draft.difficulty),
           created_at: draft.created_at || '',
         },
         ...withoutDraft,
@@ -670,6 +684,7 @@ export default function ReviewPage() {
                 <span className="review-level-title">{level.title || 'Untitled'}</span>
                 <span className="review-level-meta">
                   {level.theme || 'unknown theme'}
+                  {' | '}difficulty {difficultyLabel(level.difficulty)}
                   {typeof level.version === 'number' ? ` | v${level.version}` : ''}
                   {typeof level.versions_count === 'number' && level.versions_count > 1
                     ? ` (${level.versions_count} versions)`
@@ -706,6 +721,7 @@ export default function ReviewPage() {
             <section className="review-summary">
               <h2>{selectedLevel.title || 'Untitled Level'}</h2>
               <p>Theme: {selectedLevel.theme || 'unknown'}</p>
+              <p>Difficulty: {difficultyLabel(selectedLevel.difficulty)}</p>
               <p>Level ID: {selectedLevel.id || selectedLevelId}</p>
               <p>Window key color: {selectedLevel.window_key_color || 'not provided'}</p>
               <p>

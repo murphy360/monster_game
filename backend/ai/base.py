@@ -25,11 +25,18 @@ class AIGenerator(ABC):
     """Abstract interface for AI-powered game content generation."""
 
     @abstractmethod
-    async def generate_level_config(self, theme: str) -> dict[str, Any]:
+    async def generate_level_config(
+        self,
+        theme: str,
+        min_windows: int | None = None,
+        max_windows: int | None = None,
+    ) -> dict[str, Any]:
         """Generate a level configuration including window layout metadata.
 
         Args:
             theme: A text description of the level theme (e.g. "haunted house").
+            min_windows: Optional minimum number of windows to request.
+            max_windows: Optional maximum number of windows to request.
 
         Returns:
             A dict containing at minimum:
