@@ -79,7 +79,9 @@ async def apply_preview(level_id: str, payload: ApplyPreviewRequest) -> Any:
     processed_background_url = str(payload.processed_background_url or "")
     cropped_background_url = str(payload.cropped_background_url or "")
     if not key_color or not processed_background_url:
-        raise HTTPException(status_code=400, detail="window_key_color and processed_background_url are required")
+        raise HTTPException(
+            status_code=400, detail="window_key_color and processed_background_url are required"
+        )
 
     existing_decision = current.get("color_decision")
     color_decision = dict(existing_decision) if isinstance(existing_decision, dict) else {}
@@ -89,8 +91,7 @@ async def apply_preview(level_id: str, payload: ApplyPreviewRequest) -> Any:
     incoming_candidate = payload.preview_candidate if isinstance(payload.preview_candidate, dict) else None
     if incoming_candidate:
         filtered = [
-            row for row in candidate_scores
-            if str((row or {}).get("key_color", "")).upper() != key_color
+            row for row in candidate_scores if str((row or {}).get("key_color", "")).upper() != key_color
         ]
         filtered.append({**incoming_candidate, "key_color": key_color})
         candidate_scores = filtered

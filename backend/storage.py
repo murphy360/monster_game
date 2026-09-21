@@ -7,7 +7,7 @@ import logging
 import os
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -20,7 +20,7 @@ def _ensure_dir() -> None:
 
 
 def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _normalize_level_name_key(title: Any) -> str:
@@ -182,8 +182,7 @@ def update_level(level_id: str, updates: dict[str, Any]) -> dict[str, Any] | Non
         # If title/name changed, ensure the previous family still has a current record.
         if previous_name_key != level_name_key:
             candidates = [
-                rec for _, rec in _load_level_records()
-                if _record_name_key(rec) == previous_name_key
+                rec for _, rec in _load_level_records() if _record_name_key(rec) == previous_name_key
             ]
             if candidates:
                 newest = max(candidates, key=_record_sort_key)
@@ -213,8 +212,7 @@ def delete_level(level_id: str) -> bool:
 
         if was_current:
             remaining = [
-                other for _, other in _load_level_records()
-                if _record_name_key(other) == level_name_key
+                other for _, other in _load_level_records() if _record_name_key(other) == level_name_key
             ]
             if remaining:
                 newest = max(remaining, key=_record_sort_key)

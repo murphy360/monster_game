@@ -6,7 +6,8 @@ interface without touching the rest of the application.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Awaitable, Callable, NotRequired, TypedDict
+from collections.abc import Awaitable, Callable
+from typing import Any, NotRequired, TypedDict
 
 
 class GeneratedBackground(TypedDict):
@@ -85,4 +86,3 @@ class AIGenerator(ABC):
         Returns:
             A URL or base-64 data-URI string for the sprite image.
         """
-

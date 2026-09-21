@@ -82,3 +82,9 @@ To wipe everything under `data/` instead of only saved levels:
 - For code changes, rebuild with `docker compose --env-file backend/.env up --build`.
 - Backend model defaults are `gemini-2.5-flash` (text/vision) and `gemini-2.5-flash-image` (image generation).
 - Window boundary recognition flow is documented in [docs/window-outlining-process.md](docs/window-outlining-process.md).
+
+## Development
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for linting, formatting, and test commands. CI runs the
+same checks on every push and pull request, and publishes Docker images to the GitHub Container
+Registry on pushes to `main` and version tags.
