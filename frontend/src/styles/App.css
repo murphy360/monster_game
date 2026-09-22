@@ -1123,6 +1123,38 @@ body {
   margin-bottom: 0.2rem;
 }
 
+.review-level-reprocess {
+  margin: 0.6rem 0;
+}
+
+.review-level-reprocess button {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: #1c2f5f;
+  color: #f1f4ff;
+  border-radius: 8px;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.review-level-reprocess button:hover:not(:disabled) {
+  background: #243a75;
+}
+
+.review-level-reprocess button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.review-level-reprocess .review-batch-summary {
+  margin-top: 0.5rem;
+}
+
+.review-level-reprocess .review-batch-apply {
+  margin-top: 0.4rem;
+}
+
 .review-color-decision {
   margin-top: 0.9rem;
   background: rgba(10, 16, 30, 0.75);

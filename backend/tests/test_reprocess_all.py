@@ -100,3 +100,70 @@ def test_reprocess_all_apply_persists_the_new_windows(tmp_path, monkeypatch) -> 
     updated = storage.get_level(level_id)
     assert len(updated["windows"]) == 1
     assert updated["background_url"] != image_url  # now the masked/processed image
+
+
+def test_reprocess_single_level_dry_run_reports_changes_without_persisting(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(storage, "LEVELS_DIR", str(tmp_path))
+
+    image_url = _build_test_image_data_uri()
+    level_id = storage.save_level(
+        {
+            "title": "Stale Single Level",
+            "original_background_url": image_url,
+            "window_key_color": "#A7EF46",
+            "boundary_color": "#A7EF46",
+            "background_url": image_url,
+            "windows": [],
+            "board_width": 200,
+            "board_height": 150,
+        },
+        theme="test",
+    )
+
+    response = client.post(f"/levels/{level_id}/reprocess", json={"apply": False})
+    assert response.status_code == 200
+    result = response.json()
+    assert result["id"] == level_id
+    assert result["old_window_count"] == 0
+    assert result["new_window_count"] == 1
+    assert result["changed"] is True
+    assert result["applied"] is False
+
+    unchanged = storage.get_level(level_id)
+    assert unchanged["windows"] == []
+
+
+def test_reprocess_single_level_apply_persists_the_new_windows(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(storage, "LEVELS_DIR", str(tmp_path))
+
+    image_url = _build_test_image_data_uri()
+    level_id = storage.save_level(
+        {
+            "title": "Stale Single Level 2",
+            "original_background_url": image_url,
+            "window_key_color": "#A7EF46",
+            "boundary_color": "#A7EF46",
+            "background_url": image_url,
+            "windows": [],
+            "board_width": 200,
+            "board_height": 150,
+        },
+        theme="test",
+    )
+
+    response = client.post(f"/levels/{level_id}/reprocess", json={"apply": True})
+    assert response.status_code == 200
+    result = response.json()
+    assert result["applied"] is True
+    assert result["new_window_count"] == 1
+
+    updated = storage.get_level(level_id)
+    assert len(updated["windows"]) == 1
+    assert updated["background_url"] != image_url
+
+
+def test_reprocess_single_level_missing_id_returns_404(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(storage, "LEVELS_DIR", str(tmp_path))
+
+    response = client.post("/levels/does-not-exist/reprocess", json={"apply": False})
+    assert response.status_code == 404
