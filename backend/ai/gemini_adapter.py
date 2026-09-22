@@ -372,6 +372,7 @@ class GeminiAdapter(AIGenerator):
         """Generate a background image and return a data-URI plus key-color metadata."""
         try:
             last_key_color = self.WINDOW_KEY_COLORS[0]
+            last_image_url = ""
             last_decision: dict[str, Any] = {
                 "supported_key_colors": list(self.WINDOW_KEY_COLORS),
                 "message": "No attempts completed",
@@ -420,6 +421,7 @@ class GeminiAdapter(AIGenerator):
                 selected_window_count = int(selection.get("selected_window_count") or 0)
                 last_key_color = selected_key_color
                 attempt_image_url = "data:image/png;base64," + base64.b64encode(fixed).decode()
+                last_image_url = attempt_image_url
                 last_decision = {
                     "supported_key_colors": list(self.WINDOW_KEY_COLORS),
                     "candidate_key_colors": selection.get(
@@ -473,11 +475,12 @@ class GeminiAdapter(AIGenerator):
                 )
 
             logger.warning(
-                "Unable to generate a background with empty windows after %s attempts",
+                "Unable to generate a background with valid windows after %s attempts; "
+                "finalizing with the last attempt's image so a background still renders",
                 self.BACKGROUND_MAX_RETRIES,
             )
             return {
-                "image_url": "",
+                "image_url": last_image_url,
                 "window_key_color": last_key_color,
                 "color_decision": last_decision,
             }
