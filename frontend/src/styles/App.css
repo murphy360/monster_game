@@ -1000,6 +1000,110 @@ body {
   cursor: not-allowed;
 }
 
+.review-batch-tools {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: #111b34;
+  border-radius: 10px;
+  padding: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.review-batch-tools h3 {
+  color: #ffd166;
+  margin: 0 0 0.4rem;
+  font-size: 0.95rem;
+}
+
+.review-batch-hint {
+  font-size: 0.76rem;
+  color: rgba(241, 244, 255, 0.72);
+  margin: 0 0 0.6rem;
+  line-height: 1.35;
+}
+
+.review-batch-tools button {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: #1c2f5f;
+  color: #f1f4ff;
+  border-radius: 8px;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  width: 100%;
+}
+
+.review-batch-tools button:hover:not(:disabled) {
+  background: #243a75;
+}
+
+.review-batch-tools button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.review-batch-results {
+  margin-top: 0.7rem;
+}
+
+.review-batch-summary {
+  font-size: 0.78rem;
+  color: rgba(241, 244, 255, 0.85);
+  margin: 0 0 0.5rem;
+}
+
+.review-batch-list {
+  list-style: none;
+  margin: 0 0 0.6rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.review-batch-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 0.74rem;
+}
+
+.review-batch-row.changed {
+  background: rgba(255, 209, 102, 0.12);
+  border: 1px solid rgba(255, 209, 102, 0.35);
+}
+
+.review-batch-row.has-error {
+  background: rgba(233, 69, 96, 0.12);
+  border: 1px solid rgba(233, 69, 96, 0.35);
+}
+
+.review-batch-title {
+  font-weight: 700;
+  color: #f1f4ff;
+}
+
+.review-batch-counts {
+  color: rgba(241, 244, 255, 0.72);
+}
+
+.review-batch-error {
+  color: #ffb3c0;
+}
+
+.review-batch-apply {
+  background: #e94560 !important;
+}
+
+.review-batch-apply.confirm {
+  background: #ff6b81 !important;
+}
+
 .review-level-title {
   display: block;
   font-weight: 700;
@@ -1017,6 +1121,38 @@ body {
   color: #d8e0fb;
   font-size: 0.9rem;
   margin-bottom: 0.2rem;
+}
+
+.review-level-reprocess {
+  margin: 0.6rem 0;
+}
+
+.review-level-reprocess button {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: #1c2f5f;
+  color: #f1f4ff;
+  border-radius: 8px;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.review-level-reprocess button:hover:not(:disabled) {
+  background: #243a75;
+}
+
+.review-level-reprocess button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.review-level-reprocess .review-batch-summary {
+  margin-top: 0.5rem;
+}
+
+.review-level-reprocess .review-batch-apply {
+  margin-top: 0.4rem;
 }
 
 .review-color-decision {
