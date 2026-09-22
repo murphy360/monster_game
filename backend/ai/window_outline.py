@@ -22,12 +22,12 @@ MIN_COMPONENT_AREA = 500
 MIN_COMPONENT_SIDE = 20
 RENDER_MASK_DILATION_RADIUS = 2
 # This only sizes the returned window rect (sprite placement/click area) -
-# actual background masking now separately extends to whatever pixels near
-# each window really match (see _extend_mask_to_nearby_matches), since a
-# fixed padding can't reliably predict how far a window's true visual edge
-# extends past its tightly color-matched box. Kept small so the AI-painted
-# 2px black outline around each window still reads as a visible frame rather
-# than getting fully absorbed into the returned box.
+# actual background masking now separately follows each window's real painted
+# shape (see _mask_window_by_shape), since a fixed padding can't reliably
+# predict how far a window's true visual edge extends past its tightly
+# color-matched box, let alone what shape that edge is. Kept small so the
+# AI-painted 2px black outline around each window still reads as a visible
+# frame rather than getting fully absorbed into the returned box.
 WINDOW_BOX_PADDING = 2
 SCORE_MIN_FILL_RATIO = 0.75
 SCORE_STRICT_COLOR_TOLERANCE = 10
@@ -375,62 +375,75 @@ def _dilate_mask(mask: bytearray, width: int, height: int, radius: int = 3) -> N
         mask[idx] = 1
 
 
-def _fill_mask_rectangles(mask: bytearray, width: int, windows: list[dict[str, int]]) -> None:
-    """Force-mask full interior of accepted scoring windows.
-
-    This removes shaded/gradient remnants that can remain when only exact
-    key-colored pixels are masked.
-    """
-    for win in windows:
-        x = int(win.get("x", 0))
-        y = int(win.get("y", 0))
-        w = int(win.get("width", 0))
-        h = int(win.get("height", 0))
-        if w <= 0 or h <= 0:
-            continue
-        for yy in range(y, y + h):
-            row_start = yy * width
-            for xx in range(x, x + w):
-                mask[row_start + xx] = 1
-
-
-def _extend_mask_to_nearby_matches(
+def _mask_window_by_shape(
     cleanup_mask: bytearray,
     loose_match_mask: bytearray,
     width: int,
     height: int,
-    windows: list[dict[str, int]],
+    win: dict[str, int],
     margin: int = 6,
 ) -> None:
-    """Extend each window's masked area to nearby pixels that loosely match
-    the key color, within a small bounded margin around that window only.
+    """Mask a window's actual painted silhouette, not a rectangle around it.
 
-    A fixed pixel padding can't reliably predict how far a window's visual
-    edge (anti-aliasing, a soft gradient at the fill/outline boundary, a
-    rounded corner) extends past the tightly-matched raw box - it varies by
-    how each generated image happens to render. Rather than guess a single
-    padding value that overshoots some windows and undershoots others, pull
-    in whatever nearby pixels actually still loosely match, bounded to a
-    small margin around each specific window so this can't balloon into
-    unrelated background the way masking the whole image's loose match did.
+    Gemini doesn't always paint rectangular window openings - round, arched,
+    and other shapes are common, especially for whimsical themes. Forcing a
+    rectangular mask over a round window either cuts into its frame's rounded
+    corners or leaves them showing the raw, unprocessed color. Instead, within
+    a small bounded region around this window, flood-fill from the region's
+    border across unmatched pixels; anything *not* reached is fully enclosed
+    by matched pixels (a hole from shading/gradient in the AI-rendered fill,
+    not part of the window's true outside) and gets masked too. The result
+    hugs whatever shape the window actually is, while still closing small
+    internal gaps - the reason a blind rectangle fill existed before.
+
+    Bounded to a small margin around this specific window so it can't balloon
+    into unrelated background the way masking the whole image's loose match
+    did previously.
     """
-    for win in windows:
-        x = int(win.get("x", 0))
-        y = int(win.get("y", 0))
-        w = int(win.get("width", 0))
-        h = int(win.get("height", 0))
-        if w <= 0 or h <= 0:
-            continue
-        min_x = max(0, x - margin)
-        min_y = max(0, y - margin)
-        max_x = min(width - 1, x + w - 1 + margin)
-        max_y = min(height - 1, y + h - 1 + margin)
-        for yy in range(min_y, max_y + 1):
-            row_start = yy * width
-            for xx in range(min_x, max_x + 1):
-                idx = row_start + xx
-                if loose_match_mask[idx]:
-                    cleanup_mask[idx] = 1
+    x = int(win.get("x", 0))
+    y = int(win.get("y", 0))
+    w = int(win.get("width", 0))
+    h = int(win.get("height", 0))
+    if w <= 0 or h <= 0:
+        return
+
+    min_x = max(0, x - margin)
+    min_y = max(0, y - margin)
+    max_x = min(width - 1, x + w - 1 + margin)
+    max_y = min(height - 1, y + h - 1 + margin)
+    region_w = max_x - min_x + 1
+    region_h = max_y - min_y + 1
+
+    reached_from_outside = bytearray(region_w * region_h)
+    queue: deque[tuple[int, int]] = deque()
+
+    def _enqueue(rx: int, ry: int) -> None:
+        if 0 <= rx < region_w and 0 <= ry < region_h:
+            ridx = ry * region_w + rx
+            gidx = (min_y + ry) * width + (min_x + rx)
+            if not reached_from_outside[ridx] and not loose_match_mask[gidx]:
+                reached_from_outside[ridx] = 1
+                queue.append((rx, ry))
+
+    for rx in range(region_w):
+        _enqueue(rx, 0)
+        _enqueue(rx, region_h - 1)
+    for ry in range(region_h):
+        _enqueue(0, ry)
+        _enqueue(region_w - 1, ry)
+
+    while queue:
+        rx, ry = queue.popleft()
+        _enqueue(rx + 1, ry)
+        _enqueue(rx - 1, ry)
+        _enqueue(rx, ry + 1)
+        _enqueue(rx, ry - 1)
+
+    for ry in range(region_h):
+        for rx in range(region_w):
+            gidx = (min_y + ry) * width + (min_x + rx)
+            if loose_match_mask[gidx] or not reached_from_outside[ry * region_w + rx]:
+                cleanup_mask[gidx] = 1
 
 
 def _connected_components(mask: bytearray, width: int, height: int) -> list[dict[str, int]]:
@@ -776,8 +789,8 @@ async def outline_windows_from_image(
     maskable_windows = _accepted_padded_windows(windows, shape_passed_windows)
 
     cleanup_mask = bytearray(width * height)
-    _fill_mask_rectangles(cleanup_mask, width, maskable_windows)
-    _extend_mask_to_nearby_matches(cleanup_mask, mask, width, height, maskable_windows)
+    for maskable_win in maskable_windows:
+        _mask_window_by_shape(cleanup_mask, mask, width, height, maskable_win)
     _dilate_mask(cleanup_mask, width, height, radius=RENDER_MASK_DILATION_RADIUS)
 
     processed_pixels: list[tuple[int, int, int, int]] = []

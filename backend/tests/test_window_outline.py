@@ -190,3 +190,76 @@ def test_candidate_scoring_must_use_the_requested_color_not_the_boundary_color()
     )
     assert not_forced["window_key_color"] == "#A7EF46"
     assert len(not_forced["windows"]) == 0
+
+
+# A window with its four corners chamfered off (an arched/rounded-window
+# stand-in) rather than a plain rectangle. The chamfer removes only ~4.5% of
+# the bounding box area, comfortably above both SCORE_MIN_FILL_RATIO and
+# SCORE_STRICT_UNIFORM_RATIO, so this window is a real, accepted, interactive
+# one - but a rectangle mask over it would still cover the four chamfered
+# corners, which is exactly the bug this test guards against: the mask should
+# hug the actual painted silhouette, not its bounding box.
+ARCHED_WINDOW_BOX = (50, 50, 150, 150)  # x0, y0, x1, y1 - 100x100
+ARCHED_WINDOW_CHAMFER = 15
+
+
+def _build_arched_window_image_data_uri() -> str:
+    image = Image.new("RGB", (220, 170), SCENE_COLOR)
+    pixels = image.load()
+    width, height = image.size
+
+    band = 15
+    for y in range(height):
+        for x in range(width):
+            if y < band:
+                pixels[x, y] = (10, 10, 200)
+            elif y >= height - band:
+                pixels[x, y] = (10, 200, 10)
+            elif x < band:
+                pixels[x, y] = (200, 200, 10)
+            elif x >= width - band:
+                pixels[x, y] = (200, 10, 10)
+
+    x0, y0, x1, y1 = ARCHED_WINDOW_BOX
+    c = ARCHED_WINDOW_CHAMFER
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            dx = x - x0 if x - x0 < (x1 - x0) / 2 else (x1 - 1) - x
+            dy = y - y0 if y - y0 < (y1 - y0) / 2 else (y1 - 1) - y
+            if dx + dy < c:
+                continue  # leave this corner pixel as SCENE_COLOR
+            pixels[x, y] = KEY_COLOR
+
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    b64 = base64.b64encode(buffer.getvalue()).decode()
+    return "data:image/png;base64," + b64
+
+
+def test_mask_follows_a_non_rectangular_window_shape_instead_of_its_bounding_box() -> None:
+    """Regression test: a window with chamfered (non-rectangular) corners -
+    standing in for the round/arched windows Gemini commonly paints for
+    whimsical themes - must have its actual silhouette masked, not a
+    rectangle drawn around its bounding box. A rectangle mask would cover the
+    chamfered corners too, showing as a black square jammed into a round
+    window frame instead of a window that fits its frame."""
+    data_uri = _build_arched_window_image_data_uri()
+
+    result = asyncio.run(outline_windows_from_image(data_uri, key_color="#A7EF46", allow_key_fallback=False))
+    assert len(result["windows"]) == 1
+
+    x0, y0, x1, y1 = ARCHED_WINDOW_BOX
+    processed_url = result["processed_background_url"]
+
+    center = ((x0 + x1) // 2, (y0 + y1) // 2)
+    assert _decode_pixel(processed_url, *center) == WINDOW_DARK_FILL
+
+    corner_inset = 2  # a couple pixels in from the very corner, safely inside the chamfer
+    corners = [
+        (x0 + corner_inset, y0 + corner_inset),
+        (x1 - 1 - corner_inset, y0 + corner_inset),
+        (x0 + corner_inset, y1 - 1 - corner_inset),
+        (x1 - 1 - corner_inset, y1 - 1 - corner_inset),
+    ]
+    for corner in corners:
+        assert _decode_pixel(processed_url, *corner)[:3] == SCENE_COLOR
