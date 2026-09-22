@@ -547,6 +547,28 @@ def _to_scoring_windows(
     return result
 
 
+def _accepted_padded_windows(
+    windows: list[dict[str, int]],
+    scoring_windows: list[dict[str, int]],
+) -> list[dict[str, int]]:
+    """Return the padded window boxes whose raw region passed strict scoring.
+
+    ``windows`` (padded, one per connected component) and ``scoring_windows``
+    (tight/raw, filtered by fill-ratio and color uniformity) are both derived
+    from the same connected components, so a raw-coordinate match reliably
+    identifies which padded boxes are actually validated windows rather than
+    stray look-alike patches that only cleared the loose area/side filter.
+    """
+    accepted_raw = {(win["x"], win["y"], win["width"], win["height"]) for win in scoring_windows}
+    return [
+        win
+        for win in windows
+        if not win.get("_border_touching")
+        and (win.get("_raw_x"), win.get("_raw_y"), win.get("_raw_width"), win.get("_raw_height"))
+        in accepted_raw
+    ]
+
+
 def _score_windows(windows: list[dict[str, int]], width: int, height: int) -> float:
     """Heuristic score for picking the most plausible key-color interpretation."""
     if not windows:
@@ -571,8 +593,14 @@ def _build_masks_for_key(
     width: int,
     height: int,
     key_color: tuple[int, int, int],
-) -> tuple[bytearray, bytearray, list[dict[str, int]]]:
-    """Build base and cleanup masks plus detected windows for one key color."""
+) -> tuple[bytearray, list[dict[str, int]]]:
+    """Build the raw per-pixel match mask plus detected windows for one key color.
+
+    This mask is used only to score candidate colors and compute fill ratios;
+    the mask that actually gets blacked out of the background is built later,
+    from validated windows only, so stray look-alike scene pixels never get
+    treated as part of a window (see ``outline_windows_from_image``).
+    """
     mask = bytearray(width * height)
     match_count = 0
     for idx, (r, g, b, _) in enumerate(pixels):
@@ -585,12 +613,9 @@ def _build_masks_for_key(
     logger = logging.getLogger(__name__)
     logger.info(f"Color {key_color} matched {match_count} pixels (tolerance={KEY_COLOR_TOLERANCE})")
 
-    cleanup_mask = bytearray(mask)
-    _dilate_mask(cleanup_mask, width, height, radius=RENDER_MASK_DILATION_RADIUS)
-
     windows = _connected_components(mask, width, height)
 
-    return mask, cleanup_mask, windows
+    return mask, windows
 
 
 async def outline_windows_from_image(
@@ -617,7 +642,7 @@ async def outline_windows_from_image(
         if candidate not in candidate_colors:
             candidate_colors.append(candidate)
 
-    mask, cleanup_mask, windows = _build_masks_for_key(
+    mask, windows = _build_masks_for_key(
         pixels,
         width,
         height,
@@ -637,7 +662,7 @@ async def outline_windows_from_image(
             if candidate == resolved_key_color:
                 continue
 
-            candidate_mask, candidate_cleanup_mask, candidate_windows = _build_masks_for_key(
+            candidate_mask, candidate_windows = _build_masks_for_key(
                 pixels,
                 width,
                 height,
@@ -654,13 +679,22 @@ async def outline_windows_from_image(
             if candidate_score > best_score:
                 resolved_key_color = candidate
                 mask = candidate_mask
-                cleanup_mask = candidate_cleanup_mask
                 windows = candidate_windows
                 scoring_windows = candidate_scoring
                 best_score = candidate_score
 
-    # Mask the full accepted window interiors so shaded near-key pixels are removed too.
-    _fill_mask_rectangles(cleanup_mask, width, scoring_windows)
+    # Only validated windows (passed the strict fill-ratio/uniformity check in
+    # scoring_windows) should ever reach gameplay or get masked out of the
+    # background. Rebuild the mask from scratch here instead of reusing the
+    # loose per-pixel chroma match: that match covers every pixel anywhere in
+    # the scene that merely resembles the key color (sky haze, shadows, stray
+    # highlights), which previously caused random background patches to get
+    # blacked out and false-positive "windows" to appear in the sky.
+    accepted_windows = _accepted_padded_windows(windows, scoring_windows)
+
+    cleanup_mask = bytearray(width * height)
+    _fill_mask_rectangles(cleanup_mask, width, accepted_windows)
+    _dilate_mask(cleanup_mask, width, height, radius=RENDER_MASK_DILATION_RADIUS)
 
     processed_pixels: list[tuple[int, int, int, int]] = []
     overlay_pixels: list[tuple[int, int, int, int]] = []
@@ -685,11 +719,7 @@ async def outline_windows_from_image(
     mask_image = Image.new("RGBA", (width, height))
     mask_image.putdata(mask_pixels)
 
-    clean_windows = [
-        {k: v for k, v in w.items() if not k.startswith("_")}
-        for w in windows
-        if not w.get("_border_touching")
-    ]
+    clean_windows = [{k: v for k, v in w.items() if not k.startswith("_")} for w in accepted_windows]
     return {
         "windows": clean_windows,
         "scoring_windows": scoring_windows,

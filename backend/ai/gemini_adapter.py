@@ -346,7 +346,7 @@ class GeminiAdapter(AIGenerator):
                 best_score = score
                 best_color = color
                 best_count = window_count
-                best_windows = windows  # padded windows kept for gameplay
+                best_windows = windows  # already strict-validated + padded, safe for gameplay
 
         return {
             "selected_key_color": best_color,
