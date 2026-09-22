@@ -48,6 +48,12 @@ class GeminiAdapter(AIGenerator):
     BACKGROUND_WIDTH = 1280
     BACKGROUND_HEIGHT = 720
     BACKGROUND_MAX_RETRIES = 2
+    TARGET_WINDOW_COUNT_MIN = 6
+    TARGET_WINDOW_COUNT_MAX = 9
+    # Generous ceiling for the accept/retry check below - the prompt asks for
+    # TARGET_WINDOW_COUNT_MAX, but ornate multi-story themes (castles, etc.)
+    # can still overshoot it; only reject and retry when it's badly off.
+    MAX_ACCEPTABLE_WINDOW_COUNT = 15
     WINDOW_KEY_COLORS = (
         "#A7EF46",
         "#FF00FF",
@@ -376,6 +382,10 @@ class GeminiAdapter(AIGenerator):
                     f"A detailed game background scene for a whack-a-mole monster game. "
                     f"Theme: {theme}. "
                     "The scene must show architecture with clearly visible rectangular windows/openings that are EMPTY and unobstructed. "
+                    f"Include exactly {self.TARGET_WINDOW_COUNT_MIN} to {self.TARGET_WINDOW_COUNT_MAX} window openings "
+                    "in total - no more, even if the architecture style (e.g. a tall or multi-story building) would "
+                    "suggest more floors or windows than that; treat any additional windows as shuttered, painted "
+                    "over, or simply omitted from the facade. "
                     f"Supported mask colors: {key_color_options}. "
                     "Choose EXACTLY ONE of those three colors that will stand out the most from this scene's likely palette. "
                     "Use ONLY that chosen color for opening interiors and for one solid outer border band. "
@@ -425,10 +435,12 @@ class GeminiAdapter(AIGenerator):
                     "candidate_scores": selection.get("candidate_scores", []),
                 }
 
+                is_valid_attempt = (
+                    not has_occupied_windows and 0 < selected_window_count <= self.MAX_ACCEPTABLE_WINDOW_COUNT
+                )
+
                 if on_attempt is not None:
-                    attempt_status = (
-                        "success" if (not has_occupied_windows and selected_window_count > 0) else "retrying"
-                    )
+                    attempt_status = "success" if is_valid_attempt else "retrying"
                     try:
                         await on_attempt(
                             {
@@ -443,7 +455,7 @@ class GeminiAdapter(AIGenerator):
                     except Exception as exc:
                         logger.warning("Attempt callback failed: %s", exc)
 
-                if not has_occupied_windows and selected_window_count > 0:
+                if is_valid_attempt:
                     return {
                         "image_url": attempt_image_url,
                         "window_key_color": selected_key_color,
