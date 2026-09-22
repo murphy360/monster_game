@@ -19,7 +19,12 @@ KEY_COLOR_CANDIDATES = (
 KEY_COLOR_TOLERANCE = 30
 KEY_COLOR_DISTANCE_MAX = 140
 MIN_COMPONENT_AREA = 500
-MIN_COMPONENT_SIDE = 20
+# A real window can be legitimately narrow - e.g. a tall, slender arch in a
+# damaged/eroded section of architecture that's naturally thinner than the
+# rest of a facade - and still be a clearly intentional, well-formed window
+# (high fill-ratio, decent total area). 20 was excluding some of these
+# outright before they ever reached the shape/color checks at all.
+MIN_COMPONENT_SIDE = 12
 RENDER_MASK_DILATION_RADIUS = 2
 # This only sizes the returned window rect (sprite placement/click area) -
 # actual background masking now separately follows each window's real painted
