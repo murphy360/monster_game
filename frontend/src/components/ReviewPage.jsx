@@ -523,13 +523,11 @@ export default function ReviewPage() {
     : [];
   const highlightedWindows =
     activeCandidateWindows.length > 0
-      ? [...activeCandidateWindows]
-          .sort((left, right) => {
-            const leftArea = Number(left?.width || 0) * Number(left?.height || 0);
-            const rightArea = Number(right?.width || 0) * Number(right?.height || 0);
-            return rightArea - leftArea;
-          })
-          .slice(0, 5)
+      ? [...activeCandidateWindows].sort((left, right) => {
+          const leftArea = Number(left?.width || 0) * Number(left?.height || 0);
+          const rightArea = Number(right?.width || 0) * Number(right?.height || 0);
+          return rightArea - leftArea;
+        })
       : [];
   const displayWindows =
     highlightedWindows.length > 0
@@ -972,7 +970,9 @@ export default function ReviewPage() {
                   )}
                   {highlightedWindows.length > 0 && activeCandidate && (
                     <p className="review-color-detail">
-                      Showing top five windows for <ColorChip color={activeCandidate.key_color} />
+                      Showing all {highlightedWindows.length} window
+                      {highlightedWindows.length === 1 ? '' : 's'} for{' '}
+                      <ColorChip color={activeCandidate.key_color} />
                     </p>
                   )}
 
