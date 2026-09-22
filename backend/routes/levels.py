@@ -200,12 +200,40 @@ async def _reprocess_level(level_id: str, current: dict[str, Any], apply: bool) 
         new_key_color = _normalize_hex_color(str(outlined.get("window_key_color") or key_color))
         existing_decision = current.get("color_decision")
         color_decision = dict(existing_decision) if isinstance(existing_decision, dict) else {}
+
+        # The Mask Color Decision candidate table (and the "highlighted
+        # windows" preview it drives in the review UI) reads from
+        # candidate_scores - without refreshing the row for the resolved
+        # color here, it keeps showing whatever window count/list generation
+        # time produced, even though windows/selected_windows above are now
+        # current. That mismatch is exactly what left the UI still showing
+        # only 2 windows after a reprocess that found 10.
+        existing_candidates = color_decision.get("candidate_scores")
+        candidate_scores = list(existing_candidates) if isinstance(existing_candidates, list) else []
+        window_areas = sorted(
+            (int(w.get("width", 0)) * int(w.get("height", 0)) for w in new_windows), reverse=True
+        )
+        refreshed_candidate = {
+            "key_color": new_key_color,
+            "window_count": len(new_windows),
+            "windows": new_windows,
+            "total_area": sum(window_areas),
+            "top_window_area": window_areas[0] if window_areas else 0,
+            "top_window_areas": window_areas[:5],
+            "largest_area": window_areas[0] if window_areas else 0,
+        }
+        candidate_scores = [
+            row for row in candidate_scores if str((row or {}).get("key_color", "")).upper() != new_key_color
+        ]
+        candidate_scores.append(refreshed_candidate)
+
         color_decision.update(
             {
                 "selected_key_color": new_key_color,
                 "final_mask_removal_color": new_key_color,
                 "selected_windows": new_windows,
                 "selected_window_count": len(new_windows),
+                "candidate_scores": candidate_scores,
                 "bulk_reprocess_applied": True,
             }
         )

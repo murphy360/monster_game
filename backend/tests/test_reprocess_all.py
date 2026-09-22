@@ -147,6 +147,17 @@ def test_reprocess_single_level_apply_persists_the_new_windows(tmp_path, monkeyp
             "windows": [],
             "board_width": 200,
             "board_height": 150,
+            # A stale candidate row from generation time, same shape the real
+            # pipeline saves - a reprocess must refresh this row too, not just
+            # the top-level "windows" field, or the review UI's Mask Color
+            # Decision panel (which reads candidate_scores) keeps showing the
+            # old count even after the level itself is up to date.
+            "color_decision": {
+                "selected_key_color": "#A7EF46",
+                "candidate_scores": [
+                    {"key_color": "#A7EF46", "window_count": 0, "windows": []},
+                ],
+            },
         },
         theme="test",
     )
@@ -158,6 +169,11 @@ def test_reprocess_single_level_apply_persists_the_new_windows(tmp_path, monkeyp
     assert result["new_window_count"] == 1
 
     updated = storage.get_level(level_id)
+    updated_candidates = updated["color_decision"]["candidate_scores"]
+    assert len(updated_candidates) == 1
+    assert updated_candidates[0]["key_color"] == "#A7EF46"
+    assert updated_candidates[0]["window_count"] == 1
+    assert len(updated_candidates[0]["windows"]) == 1
     assert len(updated["windows"]) == 1
     assert updated["background_url"] != image_url
 
