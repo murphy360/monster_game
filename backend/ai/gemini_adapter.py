@@ -476,12 +476,14 @@ class GeminiAdapter(AIGenerator):
                     }
 
                 logger.warning(
-                    "Background generation attempt %s/%s failed validation (occupied_windows=%s, selected_key=%s, selected_windows=%s); retrying",
+                    "Background generation attempt %s/%s failed validation (occupied_windows=%s, "
+                    "selected_key=%s, selected_windows=%s, boundary_color=%s); retrying",
                     attempt,
                     self.BACKGROUND_MAX_RETRIES,
                     has_occupied_windows,
                     selected_key_color,
                     selected_window_count,
+                    selection.get("boundary_color"),
                 )
 
             logger.warning(
