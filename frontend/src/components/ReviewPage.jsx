@@ -873,6 +873,10 @@ export default function ReviewPage() {
               )}
               {selectedLevelId !== REVIEW_DRAFT_ID && selectedLevel?.id && (
                 <div className="review-level-reprocess">
+                  <p className="review-batch-hint">
+                    Re-run automatic window detection against this level&apos;s original image using
+                    today&apos;s algorithm - same as Batch Tools, but scoped to just this level.
+                  </p>
                   <button
                     type="button"
                     onClick={() => runLevelReprocess(false)}
@@ -987,7 +991,7 @@ export default function ReviewPage() {
                       disabled={!selectedPreviewColor || previewProcessing}
                       onClick={() => runPreviewReprocess(selectedPreviewColor)}
                     >
-                      {previewProcessing ? 'Reprocessing…' : 'Reprocess'}
+                      {previewProcessing ? 'Previewing…' : 'Preview With This Color'}
                     </button>
                     <button
                       type="button"
