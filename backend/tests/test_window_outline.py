@@ -202,6 +202,13 @@ def test_candidate_scoring_must_use_the_requested_color_not_the_boundary_color()
 ARCHED_WINDOW_BOX = (50, 50, 150, 150)  # x0, y0, x1, y1 - 100x100
 ARCHED_WINDOW_CHAMFER = 15
 
+# A tall, narrow window - e.g. a slender arch in a damaged/eroded section of
+# architecture that's naturally thinner than the rest of a facade. 15px wide
+# is a real, clearly intentional shape (high fill-ratio, decent total area),
+# not a stray anti-aliasing artifact, but was previously excluded outright by
+# MIN_COMPONENT_SIDE before ever reaching the shape/color checks.
+NARROW_WINDOW_BOX = (100, 30, 115, 115)  # x0, y0, x1, y1 - 15x85
+
 
 def _build_arched_window_image_data_uri() -> str:
     image = Image.new("RGB", (220, 170), SCENE_COLOR)
@@ -228,6 +235,34 @@ def _build_arched_window_image_data_uri() -> str:
             dy = y - y0 if y - y0 < (y1 - y0) / 2 else (y1 - 1) - y
             if dx + dy < c:
                 continue  # leave this corner pixel as SCENE_COLOR
+            pixels[x, y] = KEY_COLOR
+
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    b64 = base64.b64encode(buffer.getvalue()).decode()
+    return "data:image/png;base64," + b64
+
+
+def _build_narrow_window_image_data_uri() -> str:
+    image = Image.new("RGB", (220, 170), SCENE_COLOR)
+    pixels = image.load()
+    width, height = image.size
+
+    band = 15
+    for y in range(height):
+        for x in range(width):
+            if y < band:
+                pixels[x, y] = (10, 10, 200)
+            elif y >= height - band:
+                pixels[x, y] = (10, 200, 10)
+            elif x < band:
+                pixels[x, y] = (200, 200, 10)
+            elif x >= width - band:
+                pixels[x, y] = (200, 10, 10)
+
+    x0, y0, x1, y1 = NARROW_WINDOW_BOX
+    for y in range(y0, y1):
+        for x in range(x0, x1):
             pixels[x, y] = KEY_COLOR
 
     buffer = io.BytesIO()
@@ -263,3 +298,17 @@ def test_mask_follows_a_non_rectangular_window_shape_instead_of_its_bounding_box
     ]
     for corner in corners:
         assert _decode_pixel(processed_url, *corner)[:3] == SCENE_COLOR
+
+
+def test_narrow_window_is_still_detected() -> None:
+    """Regression test: a real but narrow (15px-wide) window must still be
+    detected and masked, not excluded outright by MIN_COMPONENT_SIDE before
+    it ever reaches the shape/color checks."""
+    data_uri = _build_narrow_window_image_data_uri()
+
+    result = asyncio.run(outline_windows_from_image(data_uri, key_color="#A7EF46", allow_key_fallback=False))
+    assert len(result["windows"]) == 1
+
+    x0, y0, x1, y1 = NARROW_WINDOW_BOX
+    center = ((x0 + x1) // 2, (y0 + y1) // 2)
+    assert _decode_pixel(result["processed_background_url"], *center) == WINDOW_DARK_FILL
