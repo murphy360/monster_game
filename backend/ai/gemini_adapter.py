@@ -377,9 +377,13 @@ class GeminiAdapter(AIGenerator):
                 "supported_key_colors": list(self.WINDOW_KEY_COLORS),
                 "message": "No attempts completed",
             }
-            key_color_options = self._window_key_color_list_text()
             for attempt in range(1, self.BACKGROUND_MAX_RETRIES + 1):
                 chosen_key_color, model_returned_key_color = await self._choose_key_color_for_theme(theme)
+                chosen_key_color_label = self._window_key_color_label(chosen_key_color)
+                other_key_colors = [c for c in self.WINDOW_KEY_COLORS if c != chosen_key_color]
+                other_key_colors_text = ", ".join(
+                    f"{c} ({self._window_key_color_label(c)})" for c in other_key_colors
+                )
                 prompt = (
                     f"A detailed game background scene for a whack-a-mole monster game. "
                     f"Theme: {theme}. "
@@ -388,16 +392,22 @@ class GeminiAdapter(AIGenerator):
                     "in total - no more, even if the architecture style (e.g. a tall or multi-story building) would "
                     "suggest more floors or windows than that; treat any additional windows as shuttered, painted "
                     "over, or simply omitted from the facade. "
-                    f"Supported mask colors: {key_color_options}. "
-                    "Choose EXACTLY ONE of those three colors that will stand out the most from this scene's likely palette. "
-                    "Use ONLY that chosen color for opening interiors and for one solid outer border band. "
-                    "For each opening, the interior fill must be a single flat block of the chosen color, surrounded by EXACTLY ONE continuous 2-pixel pure black (#000000) outline. "
+                    f"This scene uses a chroma-key mask color of {chosen_key_color} ({chosen_key_color_label}), "
+                    "picked in advance because it is the most visually distinct color from this theme's expected palette. "
+                    "Use ONLY that exact color for opening interiors and for one solid outer border band. "
+                    f"{chosen_key_color} is a technical chroma-key marker, like a video-production green screen - it is "
+                    "NOT a material or lit surface that exists within the scene. Render it as a completely flat, "
+                    "unlit, maximum-saturation digital color swatch: it must NOT be tinted, dimmed, warmed, cooled, "
+                    "shaded, or blended with the scene's ambient lighting, shadows, or overall color grading the way "
+                    "every other part of the image is. It should look like an overlay pasted on top of the finished "
+                    "artwork, jarringly artificial against the scene, not harmonized with it. "
+                    "For each opening, the interior fill must be a single flat block of that exact color, surrounded by EXACTLY ONE continuous 2-pixel pure black (#000000) outline. "
                     "Immediately outside that black opening outline, use normal scene colors (non-mask), and do not place the chosen color outside the outline. "
-                    "At the image edge, draw EXACTLY ONE solid outer border band in the chosen color, 10-15 pixels wide, around the entire image. "
+                    "At the image edge, draw EXACTLY ONE solid outer border band in that exact color, 10-15 pixels wide, around the entire image. "
                     "Immediately inside that border band, draw EXACTLY ONE continuous 2-pixel pure black (#000000) rectangle on all four sides. "
                     "On the scene side of that black rectangle, there must be zero chosen-color pixels. "
                     "Do not use the chosen color anywhere else in the scene outside opening interiors and the single outer border band. "
-                    "Avoid using the two non-chosen supported mask colors in scene content. "
+                    f"Avoid using these other reserved mask colors in scene content: {other_key_colors_text}. "
                     "Do not include monsters, creatures, people, silhouettes, faces, or characters inside windows/openings. "
                     "Do not include any text, letters, numbers, symbols, logos, signs, labels, watermarks, or UI elements anywhere in the image. Cartoon/illustrated style, vivid colours. "
                     f"Attempt variation {attempt}: emphasize clean, empty opening interiors suitable for sprite pop-outs."
