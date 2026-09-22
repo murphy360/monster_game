@@ -622,8 +622,19 @@ async def outline_windows_from_image(
     image_url: str,
     key_color: str | tuple[int, int, int] | list[int] | None = None,
     allow_key_fallback: bool = True,
+    force_key_color: bool = False,
 ) -> dict[str, Any]:
-    """Build deterministic window boxes and visualization layers from chroma-key windows."""
+    """Build deterministic window boxes and visualization layers from chroma-key windows.
+
+    By default, when the image has a detectable uniform border band, that
+    band's color is trusted over *key_color* - it's more authoritative than a
+    caller-supplied guess, since it's read directly from what the image
+    actually contains. Pass *force_key_color=True* to disable that and detect
+    using exactly *key_color*: this matters when a caller is deliberately
+    comparing several specific candidate colors against each other (see
+    GeminiAdapter._select_best_key_color), where silently substituting the
+    same boundary color for every candidate would make them indistinguishable.
+    """
     image_bytes, _ = await _decode_image_url(image_url)
     source_image = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
     boundary_color = _estimate_boundary_color(source_image)
@@ -633,7 +644,10 @@ async def outline_windows_from_image(
     width, height = base.size
     pixels = list(base.getdata())
     requested_key_color = _parse_key_color(key_color)
-    resolved_key_color = boundary_color if boundary_color is not None else requested_key_color
+    if force_key_color:
+        resolved_key_color = requested_key_color
+    else:
+        resolved_key_color = boundary_color if boundary_color is not None else requested_key_color
 
     candidate_colors: list[tuple[int, int, int]] = [resolved_key_color]
     if requested_key_color not in candidate_colors:

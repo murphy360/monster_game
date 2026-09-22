@@ -290,6 +290,7 @@ class GeminiAdapter(AIGenerator):
                 image_data_uri,
                 color,
                 allow_key_fallback=False,
+                force_key_color=True,
             )
             windows = outlined.get("windows", [])
             scoring_windows = outlined.get("scoring_windows", [])
