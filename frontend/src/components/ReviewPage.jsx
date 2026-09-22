@@ -118,11 +118,9 @@ export default function ReviewPage() {
   const [bulkResults, setBulkResults] = useState(null);
   const [bulkError, setBulkError] = useState('');
   const [bulkConfirming, setBulkConfirming] = useState(false);
-  const [levelReprocessing, setLevelReprocessing] = useState(false);
   const [levelReprocessApplying, setLevelReprocessApplying] = useState(false);
   const [levelReprocessResult, setLevelReprocessResult] = useState(null);
   const [levelReprocessError, setLevelReprocessError] = useState('');
-  const [levelReprocessConfirming, setLevelReprocessConfirming] = useState(false);
 
   const buildLevelListWithDraft = useCallback((items) => {
     const nextLevels = Array.isArray(items) ? items : [];
@@ -211,7 +209,6 @@ export default function ReviewPage() {
   useEffect(() => {
     setLevelReprocessResult(null);
     setLevelReprocessError('');
-    setLevelReprocessConfirming(false);
   }, [selectedLevelId]);
 
   useEffect(() => {
@@ -725,19 +722,17 @@ export default function ReviewPage() {
     }
   }
 
-  async function runLevelReprocess(apply) {
+  async function runLevelReprocess() {
     if (!selectedLevelId || selectedLevelId === REVIEW_DRAFT_ID) {
       return;
     }
-    const setBusy = apply ? setLevelReprocessApplying : setLevelReprocessing;
-    setBusy(true);
+    setLevelReprocessApplying(true);
     setLevelReprocessError('');
-    setLevelReprocessConfirming(false);
     try {
       const response = await fetch(`/levels/${selectedLevelId}/reprocess`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apply }),
+        body: JSON.stringify({ apply: true }),
       });
       if (!response.ok) {
         throw new Error(`Reprocess failed (${response.status})`);
@@ -745,14 +740,14 @@ export default function ReviewPage() {
       const result = await response.json();
       setLevelReprocessResult(result);
 
-      if (apply && result?.applied) {
+      if (result?.applied) {
         setLevelDetailRefreshNonce((n) => n + 1);
         await loadLevels(selectedLevelId);
       }
     } catch (err) {
       setLevelReprocessError(err.message);
     } finally {
-      setBusy(false);
+      setLevelReprocessApplying(false);
     }
   }
 
@@ -783,8 +778,8 @@ export default function ReviewPage() {
                 return (
                   <p className="review-batch-summary">
                     {changedCount > 0
-                      ? `${changedCount} of ${bulkResults.length} level(s) would change.`
-                      : `All ${bulkResults.length} level(s) already match the current algorithm.`}
+                      ? `${changedCount} of ${bulkResults.length} level(s) show detected-window changes - other details like border cropping may differ for the rest too.`
+                      : `No level(s) show detected-window changes - other details like border cropping may still differ.`}
                   </p>
                 );
               })()}
@@ -805,7 +800,7 @@ export default function ReviewPage() {
                 ))}
               </ul>
 
-              {bulkResults.some((row) => row.changed) && (
+              {bulkResults.some((row) => !row.error && !row.applied) && (
                 <button
                   type="button"
                   className={bulkConfirming ? 'review-batch-apply confirm' : 'review-batch-apply'}
@@ -817,8 +812,8 @@ export default function ReviewPage() {
                   {bulkApplying
                     ? 'Applying…'
                     : bulkConfirming
-                      ? 'Click again to confirm: overwrite changed levels'
-                      : `Apply Changes (${bulkResults.filter((row) => row.changed).length})`}
+                      ? 'Click again to confirm: overwrite every level'
+                      : `Apply Full Reprocess (${bulkResults.filter((row) => !row.error).length})`}
                 </button>
               )}
             </div>
@@ -904,48 +899,25 @@ export default function ReviewPage() {
                 <div className="review-level-reprocess">
                   <p className="review-batch-hint">
                     Re-run automatic window detection against this level&apos;s original image using
-                    today&apos;s algorithm - same as Batch Tools, but scoped to just this level.
+                    today&apos;s algorithm and save the result immediately - same as Batch Tools,
+                    but scoped to just this level.
                   </p>
                   <button
                     type="button"
-                    onClick={() => runLevelReprocess(false)}
-                    disabled={levelReprocessing || levelReprocessApplying}
+                    onClick={() => runLevelReprocess()}
+                    disabled={levelReprocessApplying}
                   >
-                    {levelReprocessing ? 'Checking…' : 'Reprocess This Level'}
+                    {levelReprocessApplying ? 'Reprocessing…' : 'Reprocess This Level'}
                   </button>
                   {levelReprocessError && <p className="error">Error: {levelReprocessError}</p>}
                   {levelReprocessResult && (
-                    <>
-                      <p className="review-batch-summary">
-                        {levelReprocessResult.error
-                          ? levelReprocessResult.error
-                          : levelReprocessResult.changed
-                            ? `Would change: ${levelReprocessResult.old_window_count} → ${levelReprocessResult.new_window_count} windows.`
-                            : `Already matches the current algorithm (${levelReprocessResult.new_window_count} windows).`}
-                      </p>
-                      {levelReprocessResult.changed && !levelReprocessResult.applied && (
-                        <button
-                          type="button"
-                          className={
-                            levelReprocessConfirming
-                              ? 'review-batch-apply confirm'
-                              : 'review-batch-apply'
-                          }
-                          onClick={() =>
-                            levelReprocessConfirming
-                              ? runLevelReprocess(true)
-                              : setLevelReprocessConfirming(true)
-                          }
-                          disabled={levelReprocessApplying}
-                        >
-                          {levelReprocessApplying
-                            ? 'Applying…'
-                            : levelReprocessConfirming
-                              ? 'Click again to confirm: overwrite this level'
-                              : 'Apply Changes'}
-                        </button>
-                      )}
-                    </>
+                    <p className="review-batch-summary">
+                      {levelReprocessResult.error
+                        ? levelReprocessResult.error
+                        : levelReprocessResult.changed
+                          ? `Applied. Detected windows changed: ${levelReprocessResult.old_window_count} → ${levelReprocessResult.new_window_count}.`
+                          : `Applied. Detected windows unchanged (${levelReprocessResult.new_window_count}); other details like border cropping may still have updated.`}
+                    </p>
                   )}
                 </div>
               )}
