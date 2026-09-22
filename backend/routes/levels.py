@@ -32,6 +32,8 @@ class ApplyPreviewRequest(BaseModel):
     processed_background_url: str
     cropped_background_url: str | None = None
     preview_candidate: dict[str, Any] | None = None
+    boundary_crop_box: dict[str, int] | None = None
+    boundary_crop_applied: bool = False
 
 
 def _normalize_hex_color(value: str) -> str:
@@ -107,8 +109,11 @@ async def apply_preview(level_id: str, payload: ApplyPreviewRequest) -> Any:
             "selected_window_count": len(windows),
             "candidate_scores": candidate_scores,
             "manual_preview_applied": True,
+            "boundary_crop_applied": payload.boundary_crop_applied,
         }
     )
+    if payload.boundary_crop_box:
+        color_decision["boundary_crop_box"] = payload.boundary_crop_box
 
     updated = update_level(
         level_id,
@@ -158,8 +163,12 @@ async def _reprocess_level(level_id: str, current: dict[str, Any], apply: bool) 
     using the currently deployed algorithm.
 
     Dry-run by default (apply=False): reports what would change without
-    touching saved data. Pass apply=True to persist the new result if the
-    level's windows actually changed.
+    touching saved data. Pass apply=True to unconditionally persist the
+    freshly computed result. This intentionally does *not* gate on whether
+    the window list itself changed - a fix to boundary/crop detection (e.g.
+    how much border gets cropped off) can change the saved image and
+    board dimensions even when the detected windows are identical, and a
+    reprocess needs to pick that up too, not just window-position diffs.
     """
     title = str(current.get("title") or "Untitled")
     old_windows = current.get("windows") if isinstance(current.get("windows"), list) else []
@@ -196,7 +205,7 @@ async def _reprocess_level(level_id: str, current: dict[str, Any], apply: bool) 
     changed = _windows_signature(old_windows) != _windows_signature(new_windows)
     applied = False
 
-    if apply and changed:
+    if apply:
         new_key_color = _normalize_hex_color(str(outlined.get("window_key_color") or key_color))
         existing_decision = current.get("color_decision")
         color_decision = dict(existing_decision) if isinstance(existing_decision, dict) else {}
@@ -235,8 +244,11 @@ async def _reprocess_level(level_id: str, current: dict[str, Any], apply: bool) 
                 "selected_window_count": len(new_windows),
                 "candidate_scores": candidate_scores,
                 "bulk_reprocess_applied": True,
+                "boundary_crop_applied": bool(outlined.get("boundary_crop_applied")),
             }
         )
+        if outlined.get("boundary_crop_box"):
+            color_decision["boundary_crop_box"] = outlined["boundary_crop_box"]
         updated = update_level(
             level_id,
             {
@@ -248,6 +260,13 @@ async def _reprocess_level(level_id: str, current: dict[str, Any], apply: bool) 
                     outlined.get("processed_background_url") or current.get("background_url", "")
                 ),
                 "windows": new_windows,
+                # Window coordinates above are relative to the cropped base
+                # image's own dimensions, which a crop-detection change (not
+                # just a window-position change) can shift even when the
+                # windows list itself is unchanged - these must stay in sync
+                # with it or the review UI scales the window overlay wrong.
+                "board_width": outlined.get("board_width") or current.get("board_width"),
+                "board_height": outlined.get("board_height") or current.get("board_height"),
                 "color_decision": color_decision,
             },
         )

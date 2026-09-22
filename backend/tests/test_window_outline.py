@@ -450,3 +450,72 @@ def test_pillarboxed_background_still_resolves_the_true_border_color() -> None:
     assert result["boundary_color"] != "#000000"
     assert result["window_key_color"] == "#A7EF46"
     assert len(result["windows"]) == len(PILLARBOX_WINDOW_BOXES)
+
+
+def _build_interrupted_top_border_image_data_uri() -> tuple[str, tuple[int, int, int], int]:
+    """A background with a correct, uniform border+outline on every edge,
+    except a rooftop-like element that reaches from the scene up into (but
+    not all the way through) the top border for a narrow column range - it
+    stops partway into the border rather than breaching it entirely."""
+    width, height = 1280, 720
+    border, outline = 13, 2
+    true_depth = border + outline
+    border_color = (226, 52, 194)
+    image = Image.new("RGB", (width, height), SCENE_COLOR)
+    pixels = image.load()
+
+    for y in range(border):
+        for x in range(width):
+            pixels[x, y] = border_color
+            pixels[x, height - 1 - y] = border_color
+    for x in range(border):
+        for y in range(height):
+            pixels[x, y] = border_color
+            pixels[width - 1 - x, y] = border_color
+    for y in range(border, true_depth):
+        for x in range(width):
+            pixels[x, y] = (0, 0, 0)
+            pixels[x, height - 1 - y] = (0, 0, 0)
+    for x in range(border, true_depth):
+        for y in range(height):
+            pixels[x, y] = (0, 0, 0)
+            pixels[width - 1 - x, y] = (0, 0, 0)
+
+    chimney_width = int(width * 0.10)
+    chimney_x0 = (width - chimney_width) // 2
+    for y in range(4, true_depth + 5):
+        for x in range(chimney_x0, chimney_x0 + chimney_width):
+            pixels[x, y] = SCENE_COLOR
+
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    b64 = base64.b64encode(buffer.getvalue()).decode()
+    return "data:image/png;base64," + b64, border_color, true_depth
+
+
+def test_boundary_crop_is_not_truncated_by_a_local_border_interruption() -> None:
+    """Regression test: a single art element (e.g. a rooftop/chimney) reaching
+    into the top border for a narrow column range must not truncate the
+    measured crop depth for the *entire* top edge. The old per-row match
+    check required the whole row to match before counting it, so the first
+    row the element touched halted the top scan early, leaving most of the
+    border (and the black outline inside it) uncropped across the full
+    width - not just where the element actually was."""
+    data_uri, border_color, true_depth = _build_interrupted_top_border_image_data_uri()
+
+    result = asyncio.run(outline_windows_from_image(data_uri, key_color="#A7EF46"))
+
+    assert result["boundary_crop_applied"]
+    assert result["boundary_crop_box"]["top"] == true_depth
+    assert result["boundary_crop_box"]["left"] == true_depth
+    assert result["boundary_crop_box"]["right"] == true_depth
+    assert result["boundary_crop_box"]["bottom"] == true_depth
+
+    # No border or outline color should remain at the very edge of the
+    # cropped image, away from where the interrupting element was.
+    cropped_header, cropped_encoded = result["cropped_background_url"].split(",", 1)
+    cropped_image = Image.open(io.BytesIO(base64.b64decode(cropped_encoded))).convert("RGB")
+    edge_pixel = cropped_image.getpixel((50, 0))
+    assert edge_pixel == SCENE_COLOR
+    assert edge_pixel != border_color
+    assert edge_pixel != (0, 0, 0)

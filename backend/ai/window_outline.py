@@ -50,7 +50,6 @@ WINDOW_DARK_FILL = (6, 16, 30, 255)
 BOUNDARY_SAMPLE_BAND = 12
 BOUNDARY_COLOR_BUCKET_SIZE = 16
 BOUNDARY_COLOR_TOLERANCE = 28
-BOUNDARY_LINE_MATCH_RATIO = 0.93
 BOUNDARY_MIN_CROP_PIXELS = 3
 BOUNDARY_MAX_CROP_RATIO = 0.18
 # Gemini can drift the whole composition rather than just the key color - e.g.
@@ -302,78 +301,85 @@ def _estimate_boundary_color(image: Image.Image) -> tuple[int, int, int] | None:
     return non_black_candidates[0] if non_black_candidates else candidates[0]
 
 
+def _is_border_or_outline(rgb: tuple[int, int, int], boundary_color: tuple[int, int, int]) -> bool:
+    """True for a pixel that's either the border color band or the black outline just inside it.
+
+    The crop needs to remove both together - stopping at the border/outline
+    transition (as a plain border-color match would) leaves the 2px black
+    outline sitting at the new image edge as if it were scene content.
+    """
+    return _is_color_match(rgb, boundary_color) or _is_near_black(rgb)
+
+
+def _median_depth(depths: list[int]) -> int:
+    """Return the median of a list of per-line depths."""
+    ordered = sorted(depths)
+    return ordered[len(ordered) // 2]
+
+
 def _measure_boundary_thickness(
     image: Image.Image,
     boundary_color: tuple[int, int, int],
 ) -> tuple[int, int, int, int]:
-    """Measure how many solid-color boundary pixels exist on each edge."""
+    """Measure how many border-or-outline pixels deep each edge runs.
+
+    Depth is measured independently per column (for top/bottom) or per row
+    (for left/right), then reduced to the edge's thickness via the median
+    across those lines - not by requiring every full row/column to match
+    before counting it. A single art element that locally pokes into the
+    border (e.g. a rooftop or chimney reaching into the top band) would make
+    a whole-row match check fail on the very first row it touches, truncating
+    the measured depth for the *entire* edge well short of the real border.
+    Measuring per-line and taking the median lets a minority of interrupted
+    columns/rows get outvoted by the majority that cleanly show the true
+    depth.
+    """
     width, height = image.size
     pixels = image.load()
 
     max_scan_x = max(1, int(width * BOUNDARY_MAX_CROP_RATIO))
     max_scan_y = max(1, int(height * BOUNDARY_MAX_CROP_RATIO))
 
-    def _line_ratio_top(y: int) -> float:
-        matched = 0
-        for x in range(width):
-            r, g, b, _ = pixels[x, y]
-            if _is_color_match((r, g, b), boundary_color):
-                matched += 1
-        return matched / max(1, width)
+    def _depth_from_top(x: int) -> int:
+        depth = 0
+        for y in range(max_scan_y):
+            if _is_border_or_outline(pixels[x, y][:3], boundary_color):
+                depth += 1
+            else:
+                break
+        return depth
 
-    def _line_ratio_bottom(y: int) -> float:
-        matched = 0
-        yy = height - 1 - y
-        for x in range(width):
-            r, g, b, _ = pixels[x, yy]
-            if _is_color_match((r, g, b), boundary_color):
-                matched += 1
-        return matched / max(1, width)
+    def _depth_from_bottom(x: int) -> int:
+        depth = 0
+        for y in range(max_scan_y):
+            if _is_border_or_outline(pixels[x, height - 1 - y][:3], boundary_color):
+                depth += 1
+            else:
+                break
+        return depth
 
-    def _line_ratio_left(x: int) -> float:
-        matched = 0
-        for y in range(height):
-            r, g, b, _ = pixels[x, y]
-            if _is_color_match((r, g, b), boundary_color):
-                matched += 1
-        return matched / max(1, height)
+    def _depth_from_left(y: int) -> int:
+        depth = 0
+        for x in range(max_scan_x):
+            if _is_border_or_outline(pixels[x, y][:3], boundary_color):
+                depth += 1
+            else:
+                break
+        return depth
 
-    def _line_ratio_right(x: int) -> float:
-        matched = 0
-        xx = width - 1 - x
-        for y in range(height):
-            r, g, b, _ = pixels[xx, y]
-            if _is_color_match((r, g, b), boundary_color):
-                matched += 1
-        return matched / max(1, height)
+    def _depth_from_right(y: int) -> int:
+        depth = 0
+        for x in range(max_scan_x):
+            if _is_border_or_outline(pixels[width - 1 - x, y][:3], boundary_color):
+                depth += 1
+            else:
+                break
+        return depth
 
-    top = 0
-    for y in range(max_scan_y):
-        if _line_ratio_top(y) >= BOUNDARY_LINE_MATCH_RATIO:
-            top += 1
-        else:
-            break
-
-    bottom = 0
-    for y in range(max_scan_y):
-        if _line_ratio_bottom(y) >= BOUNDARY_LINE_MATCH_RATIO:
-            bottom += 1
-        else:
-            break
-
-    left = 0
-    for x in range(max_scan_x):
-        if _line_ratio_left(x) >= BOUNDARY_LINE_MATCH_RATIO:
-            left += 1
-        else:
-            break
-
-    right = 0
-    for x in range(max_scan_x):
-        if _line_ratio_right(x) >= BOUNDARY_LINE_MATCH_RATIO:
-            right += 1
-        else:
-            break
+    top = _median_depth([_depth_from_top(x) for x in range(width)])
+    bottom = _median_depth([_depth_from_bottom(x) for x in range(width)])
+    left = _median_depth([_depth_from_left(y) for y in range(height)])
+    right = _median_depth([_depth_from_right(y) for y in range(height)])
 
     return left, top, right, bottom
 

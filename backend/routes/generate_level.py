@@ -437,6 +437,9 @@ async def generate_level(
                     color_decision["boundary_color"] = boundary_color
                 if candidate_key_colors:
                     color_decision["candidate_key_colors"] = candidate_key_colors
+                color_decision["boundary_crop_applied"] = bool(outlined.get("boundary_crop_applied"))
+                if outlined.get("boundary_crop_box"):
+                    color_decision["boundary_crop_box"] = outlined["boundary_crop_box"]
                 board_width = _as_int(outlined.get("board_width"), BOARD_WIDTH) or BOARD_WIDTH
                 board_height = _as_int(outlined.get("board_height"), BOARD_HEIGHT) or BOARD_HEIGHT
                 windows = _normalize_windows(
