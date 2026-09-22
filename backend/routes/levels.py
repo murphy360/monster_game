@@ -32,6 +32,8 @@ class ApplyPreviewRequest(BaseModel):
     processed_background_url: str
     cropped_background_url: str | None = None
     preview_candidate: dict[str, Any] | None = None
+    boundary_crop_box: dict[str, int] | None = None
+    boundary_crop_applied: bool = False
 
 
 def _normalize_hex_color(value: str) -> str:
@@ -107,8 +109,11 @@ async def apply_preview(level_id: str, payload: ApplyPreviewRequest) -> Any:
             "selected_window_count": len(windows),
             "candidate_scores": candidate_scores,
             "manual_preview_applied": True,
+            "boundary_crop_applied": payload.boundary_crop_applied,
         }
     )
+    if payload.boundary_crop_box:
+        color_decision["boundary_crop_box"] = payload.boundary_crop_box
 
     updated = update_level(
         level_id,
@@ -235,8 +240,11 @@ async def _reprocess_level(level_id: str, current: dict[str, Any], apply: bool) 
                 "selected_window_count": len(new_windows),
                 "candidate_scores": candidate_scores,
                 "bulk_reprocess_applied": True,
+                "boundary_crop_applied": bool(outlined.get("boundary_crop_applied")),
             }
         )
+        if outlined.get("boundary_crop_box"):
+            color_decision["boundary_crop_box"] = outlined["boundary_crop_box"]
         updated = update_level(
             level_id,
             {

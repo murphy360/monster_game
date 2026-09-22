@@ -107,6 +107,7 @@ export default function ReviewPage() {
   const [previewBoardHeight, setPreviewBoardHeight] = useState(0);
   const [previewCroppedBackgroundUrl, setPreviewCroppedBackgroundUrl] = useState('');
   const [previewProcessedBackgroundUrl, setPreviewProcessedBackgroundUrl] = useState('');
+  const [previewBoundaryCropBox, setPreviewBoundaryCropBox] = useState(null);
   const [previewCandidateRows, setPreviewCandidateRows] = useState([]);
   const [previewSaving, setPreviewSaving] = useState(false);
   const [previewSaveNote, setPreviewSaveNote] = useState('');
@@ -297,6 +298,7 @@ export default function ReviewPage() {
     setPreviewBoardHeight(0);
     setPreviewCroppedBackgroundUrl('');
     setPreviewProcessedBackgroundUrl('');
+    setPreviewBoundaryCropBox(null);
     setPreviewCandidateRows([]);
     setPreviewSaving(false);
     setPreviewSaveNote('');
@@ -440,6 +442,7 @@ export default function ReviewPage() {
       setPreviewBoardHeight(resolvedPreviewHeight);
       setPreviewCroppedBackgroundUrl(payload.cropped_background_url || '');
       setPreviewProcessedBackgroundUrl(payload.processed_background_url || '');
+      setPreviewBoundaryCropBox(payload.boundary_crop_box || null);
       upsertPreviewCandidate(color, {
         score,
         window_count: windowsFromPreview.length,
@@ -456,6 +459,7 @@ export default function ReviewPage() {
       setPreviewBoardHeight(0);
       setPreviewCroppedBackgroundUrl('');
       setPreviewProcessedBackgroundUrl('');
+      setPreviewBoundaryCropBox(null);
       setPreviewError(err.message);
       upsertPreviewCandidate(color, { preview_status: 'error' });
     } finally {
@@ -549,6 +553,30 @@ export default function ReviewPage() {
   const transformedImageUrl = previewHasRun
     ? previewProcessedBackgroundUrl || selectedLevel?.background_url || originalImageUrl
     : selectedLevel?.background_url || '';
+
+  // The board width/height above are the CROPPED board's dimensions (what
+  // window coordinates are relative to). The boundary-identification step
+  // needs the crop expressed against the original, uncropped image instead,
+  // so derive that by adding the per-side crop amounts back on rather than
+  // needing a separate "original dimensions" field from the backend.
+  const boundaryCropBox = previewHasRun
+    ? previewBoundaryCropBox
+    : colorDecision?.boundary_crop_box || null;
+  const boundaryCropLeft = Number(boundaryCropBox?.left || 0);
+  const boundaryCropTop = Number(boundaryCropBox?.top || 0);
+  const boundaryCropRight = Number(boundaryCropBox?.right || 0);
+  const boundaryCropBottom = Number(boundaryCropBox?.bottom || 0);
+  const originalBoardWidth = previewDisplayBoardWidth + boundaryCropLeft + boundaryCropRight;
+  const originalBoardHeight = previewDisplayBoardHeight + boundaryCropTop + boundaryCropBottom;
+  const boundaryBox =
+    boundaryCropBox && originalBoardWidth > 0 && originalBoardHeight > 0
+      ? {
+          x: boundaryCropLeft,
+          y: boundaryCropTop,
+          width: previewDisplayBoardWidth,
+          height: previewDisplayBoardHeight,
+        }
+      : null;
   const spriteUrls = Array.isArray(selectedLevel?.sprite_urls) ? selectedLevel.sprite_urls : [];
   const monstersMeta = Array.isArray(selectedLevel?.monsters_meta)
     ? selectedLevel.monsters_meta
@@ -595,6 +623,8 @@ export default function ReviewPage() {
           cropped_background_url: previewCroppedBackgroundUrl,
           processed_background_url: previewProcessedBackgroundUrl,
           preview_candidate: previewCandidate,
+          boundary_crop_box: previewBoundaryCropBox,
+          boundary_crop_applied: Boolean(previewBoundaryCropBox),
         }),
       });
 
@@ -610,6 +640,7 @@ export default function ReviewPage() {
       setPreviewBoardHeight(0);
       setPreviewCroppedBackgroundUrl('');
       setPreviewProcessedBackgroundUrl('');
+      setPreviewBoundaryCropBox(null);
       setPreviewCandidateRows([]);
       setPreviewSaveNote('Preview applied permanently to this level.');
     } catch (err) {
@@ -1078,21 +1109,21 @@ export default function ReviewPage() {
                 title="1) Original Image"
                 imageUrl={originalImageUrl}
                 windows={[]}
-                boardWidth={previewDisplayBoardWidth}
-                boardHeight={previewDisplayBoardHeight}
+                boardWidth={originalBoardWidth}
+                boardHeight={originalBoardHeight}
                 showWindows={false}
                 onImageClick={handleOriginalImageClick}
               />
               <ReviewImageCard
-                title="2) Boundary Cropped"
-                imageUrl={croppedImageUrl}
-                windows={[]}
-                boardWidth={previewDisplayBoardWidth}
-                boardHeight={previewDisplayBoardHeight}
-                showWindows={false}
+                title="2) Identifying Boundary"
+                imageUrl={originalImageUrl}
+                windows={boundaryBox ? [boundaryBox] : []}
+                boardWidth={originalBoardWidth}
+                boardHeight={originalBoardHeight}
+                showWindows={Boolean(boundaryBox)}
               />
               <ReviewImageCard
-                title="3) Identified Boundary Boxes"
+                title="3) Identifying Windows"
                 imageUrl={croppedImageUrl}
                 windows={displayWindows}
                 boardWidth={previewDisplayBoardWidth}
@@ -1100,7 +1131,7 @@ export default function ReviewPage() {
                 showWindows={true}
               />
               <ReviewImageCard
-                title={`4) Transformed Image${previewHasRun ? ' (Preview Only)' : ''}`}
+                title={`4) Final Image${previewHasRun ? ' (Preview Only)' : ''}`}
                 imageUrl={transformedImageUrl}
                 windows={[]}
                 boardWidth={previewDisplayBoardWidth}
