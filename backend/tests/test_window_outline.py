@@ -209,6 +209,13 @@ ARCHED_WINDOW_CHAMFER = 15
 # MIN_COMPONENT_SIDE before ever reaching the shape/color checks.
 NARROW_WINDOW_BOX = (100, 30, 115, 115)  # x0, y0, x1, y1 - 15x85
 
+# A window shaped like a real arch: a semicircular top fused to a short
+# rectangular body, rather than a plain rectangle or a token corner chamfer.
+# Its bounding box naturally loses ~15% of its area to the box's own corners
+# (outside the painted silhouette entirely, not anti-aliasing) - representative
+# of real Gemini-painted arched windows.
+ARCH_WINDOW_BOX = (60, 40, 140, 100)  # x0, y0, x1, y1 - 80x60
+
 
 def _build_arched_window_image_data_uri() -> str:
     image = Image.new("RGB", (220, 170), SCENE_COLOR)
@@ -271,6 +278,45 @@ def _build_narrow_window_image_data_uri() -> str:
     return "data:image/png;base64," + b64
 
 
+def _build_semicircular_arch_window_image_data_uri() -> str:
+    image = Image.new("RGB", (220, 170), SCENE_COLOR)
+    pixels = image.load()
+    width, height = image.size
+
+    # Distinct color per edge, same as _build_test_image_data_uri, so the
+    # image has no single uniform border band for boundary detection to pick
+    # up and hijack the resolved key color with.
+    band = 15
+    for y in range(height):
+        for x in range(width):
+            if y < band:
+                pixels[x, y] = (10, 10, 200)
+            elif y >= height - band:
+                pixels[x, y] = (10, 200, 10)
+            elif x < band:
+                pixels[x, y] = (200, 200, 10)
+            elif x >= width - band:
+                pixels[x, y] = (200, 10, 10)
+
+    x0, y0, x1, y1 = ARCH_WINDOW_BOX
+    box_w = x1 - x0
+    radius = box_w // 2
+    cx = x0 + radius
+    arch_top = y0 + radius
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            if y < arch_top:
+                if (x - cx) ** 2 + (y - arch_top) ** 2 <= radius**2:
+                    pixels[x, y] = KEY_COLOR
+            else:
+                pixels[x, y] = KEY_COLOR
+
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    b64 = base64.b64encode(buffer.getvalue()).decode()
+    return "data:image/png;base64," + b64
+
+
 def test_mask_follows_a_non_rectangular_window_shape_instead_of_its_bounding_box() -> None:
     """Regression test: a window with chamfered (non-rectangular) corners -
     standing in for the round/arched windows Gemini commonly paints for
@@ -312,3 +358,26 @@ def test_narrow_window_is_still_detected() -> None:
     x0, y0, x1, y1 = NARROW_WINDOW_BOX
     center = ((x0 + x1) // 2, (y0 + y1) // 2)
     assert _decode_pixel(result["processed_background_url"], *center) == WINDOW_DARK_FILL
+
+
+def test_real_arched_window_with_natural_corner_loss_is_still_interactive() -> None:
+    """Regression test: a genuinely, exactly key-colored arched window loses
+    ~15% of its bounding-box area to its own curved silhouette (the box's
+    corners sit outside the painted window entirely) - not to imprecise
+    coloring. That drags fill-ratio and strict color-uniformity down together,
+    since they measure the same box against the same pixels. Previously
+    SCORE_STRICT_UNIFORM_RATIO (0.92) sat above what a real arch can
+    structurally achieve, so an exactly-colored arch that clearly passed the
+    shape check as a genuine window was still excluded from the interactive
+    window list."""
+    data_uri = _build_semicircular_arch_window_image_data_uri()
+
+    result = asyncio.run(outline_windows_from_image(data_uri, key_color="#A7EF46", allow_key_fallback=False))
+
+    assert len(result["windows"]) == 1
+    x0, y0, x1, y1 = ARCH_WINDOW_BOX
+    win = result["windows"][0]
+    assert win["x"] <= x0
+    assert win["y"] <= y0
+    assert win["x"] + win["width"] >= x1
+    assert win["y"] + win["height"] >= y1

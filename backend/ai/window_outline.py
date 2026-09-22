@@ -36,7 +36,16 @@ RENDER_MASK_DILATION_RADIUS = 2
 WINDOW_BOX_PADDING = 2
 SCORE_MIN_FILL_RATIO = 0.75
 SCORE_STRICT_COLOR_TOLERANCE = 10
-SCORE_STRICT_UNIFORM_RATIO = 0.92
+# Real arched/rounded windows naturally lose 7-15% of their bounding-box area
+# to their own curved corners (the box's corners sit outside the painted
+# silhouette entirely), which drags the strict ratio down right alongside the
+# fill ratio - they aren't independent signals for that shape. A threshold
+# above SCORE_MIN_FILL_RATIO effectively re-rejects the exact windows the
+# shape check just accepted, purely because they're curved rather than
+# rectangular. Keeping this at the same level as SCORE_MIN_FILL_RATIO still
+# rejects genuinely wrong-colored regions (those score near 0, not
+# borderline), while accepting well-formed arches as interactive windows.
+SCORE_STRICT_UNIFORM_RATIO = SCORE_MIN_FILL_RATIO
 WINDOW_DARK_FILL = (6, 16, 30, 255)
 BOUNDARY_SAMPLE_BAND = 12
 BOUNDARY_COLOR_BUCKET_SIZE = 16
