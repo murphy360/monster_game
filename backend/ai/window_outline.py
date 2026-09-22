@@ -284,9 +284,15 @@ def _estimate_boundary_color(image: Image.Image) -> tuple[int, int, int] | None:
     vertical_candidate = _dominant_bucket_color(vertical_samples)
 
     candidates: list[tuple[int, int, int]] = []
-    if horizontal_candidate is not None and _horizontal_match_ratio(horizontal_candidate) >= BOUNDARY_EDGE_MATCH_RATIO_MIN:
+    if (
+        horizontal_candidate is not None
+        and _horizontal_match_ratio(horizontal_candidate) >= BOUNDARY_EDGE_MATCH_RATIO_MIN
+    ):
         candidates.append(horizontal_candidate)
-    if vertical_candidate is not None and _vertical_match_ratio(vertical_candidate) >= BOUNDARY_EDGE_MATCH_RATIO_MIN:
+    if (
+        vertical_candidate is not None
+        and _vertical_match_ratio(vertical_candidate) >= BOUNDARY_EDGE_MATCH_RATIO_MIN
+    ):
         candidates.append(vertical_candidate)
 
     if not candidates:
