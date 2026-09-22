@@ -97,3 +97,53 @@ def test_stray_color_drifted_patch_is_not_treated_as_a_window() -> None:
     real_center = ((real_x0 + real_x1) // 2, (real_y0 + real_y1) // 2)
     assert _decode_pixel(processed_url, *real_center) == WINDOW_DARK_FILL
     assert _decode_pixel(processed_url, *stray_center)[:3] == DRIFTED_COLOR
+
+
+BORDER_COLOR = (167, 239, 70)  # lime - matches the real pipeline's default key color
+FUCHSIA_WINDOW_BOX = (60, 50, 100, 80)
+
+
+def _build_bordered_image_data_uri() -> str:
+    """An image with one uniform border band (triggers boundary detection) and
+    a single fuchsia window - no lime content anywhere inside the border."""
+    image = Image.new("RGB", (200, 150), SCENE_COLOR)
+    pixels = image.load()
+    width, height = image.size
+
+    band = 15
+    for y in range(height):
+        for x in range(width):
+            if y < band or y >= height - band or x < band or x >= width - band:
+                pixels[x, y] = BORDER_COLOR
+
+    x0, y0, x1, y1 = FUCHSIA_WINDOW_BOX
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            pixels[x, y] = (255, 0, 255)
+
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    b64 = base64.b64encode(buffer.getvalue()).decode()
+    return "data:image/png;base64," + b64
+
+
+def test_candidate_scoring_must_use_the_requested_color_not_the_boundary_color() -> None:
+    """Regression test: outline_windows_from_image() silently replaced whatever
+    key_color was requested with the image's auto-detected border-band color,
+    so every candidate in GeminiAdapter._select_best_key_color's comparison
+    loop collapsed to testing the same (border) color - candidates never
+    actually differed, no matter which color was requested."""
+    data_uri = _build_bordered_image_data_uri()
+
+    forced = asyncio.run(
+        outline_windows_from_image(
+            data_uri, key_color="#FF00FF", allow_key_fallback=False, force_key_color=True
+        )
+    )
+    assert len(forced["windows"]) == 1
+
+    not_forced = asyncio.run(
+        outline_windows_from_image(data_uri, key_color="#FF00FF", allow_key_fallback=False)
+    )
+    assert not_forced["window_key_color"] == "#A7EF46"
+    assert len(not_forced["windows"]) == 0
