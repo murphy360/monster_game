@@ -21,7 +21,14 @@ KEY_COLOR_DISTANCE_MAX = 140
 MIN_COMPONENT_AREA = 500
 MIN_COMPONENT_SIDE = 20
 RENDER_MASK_DILATION_RADIUS = 2
-WINDOW_BOX_PADDING = 6
+# This only sizes the returned window rect (sprite placement/click area) -
+# actual background masking now separately extends to whatever pixels near
+# each window really match (see _extend_mask_to_nearby_matches), since a
+# fixed padding can't reliably predict how far a window's true visual edge
+# extends past its tightly color-matched box. Kept small so the AI-painted
+# 2px black outline around each window still reads as a visible frame rather
+# than getting fully absorbed into the returned box.
+WINDOW_BOX_PADDING = 2
 SCORE_MIN_FILL_RATIO = 0.75
 SCORE_STRICT_COLOR_TOLERANCE = 10
 SCORE_STRICT_UNIFORM_RATIO = 0.92
@@ -387,6 +394,45 @@ def _fill_mask_rectangles(mask: bytearray, width: int, windows: list[dict[str, i
                 mask[row_start + xx] = 1
 
 
+def _extend_mask_to_nearby_matches(
+    cleanup_mask: bytearray,
+    loose_match_mask: bytearray,
+    width: int,
+    height: int,
+    windows: list[dict[str, int]],
+    margin: int = 6,
+) -> None:
+    """Extend each window's masked area to nearby pixels that loosely match
+    the key color, within a small bounded margin around that window only.
+
+    A fixed pixel padding can't reliably predict how far a window's visual
+    edge (anti-aliasing, a soft gradient at the fill/outline boundary, a
+    rounded corner) extends past the tightly-matched raw box - it varies by
+    how each generated image happens to render. Rather than guess a single
+    padding value that overshoots some windows and undershoots others, pull
+    in whatever nearby pixels actually still loosely match, bounded to a
+    small margin around each specific window so this can't balloon into
+    unrelated background the way masking the whole image's loose match did.
+    """
+    for win in windows:
+        x = int(win.get("x", 0))
+        y = int(win.get("y", 0))
+        w = int(win.get("width", 0))
+        h = int(win.get("height", 0))
+        if w <= 0 or h <= 0:
+            continue
+        min_x = max(0, x - margin)
+        min_y = max(0, y - margin)
+        max_x = min(width - 1, x + w - 1 + margin)
+        max_y = min(height - 1, y + h - 1 + margin)
+        for yy in range(min_y, max_y + 1):
+            row_start = yy * width
+            for xx in range(min_x, max_x + 1):
+                idx = row_start + xx
+                if loose_match_mask[idx]:
+                    cleanup_mask[idx] = 1
+
+
 def _connected_components(mask: bytearray, width: int, height: int) -> list[dict[str, int]]:
     """Return bounding boxes for connected mask regions."""
     visited = bytearray(width * height)
@@ -480,20 +526,31 @@ def _to_scoring_windows(
     img_width: int | None = None,
     pixels: list[tuple[int, int, int, int]] | None = None,
     key_color: tuple[int, int, int] | None = None,
+    require_strict_uniformity: bool = True,
 ) -> list[dict]:
     """Return tight unpadded bounding boxes for windows that pass fill-ratio check.
 
     A window passes when the number of key-color pixels inside its tight bounding
-    box is at least SCORE_MIN_FILL_RATIO of the box area.  This excludes sparse
-    or stray matched regions so only solid, uniform window interiors contribute
-    to scoring.
+    box is at least SCORE_MIN_FILL_RATIO of the box area. This is fundamentally a
+    *shape* check: a roughly rectangular, solidly-filled region (a real window,
+    even one with some internal shading/gradient) passes it, while an irregular
+    stray patch (sky haze, a shadow) - whose matched pixels only sparsely or
+    unevenly fill their own bounding box - does not. That makes it a reliable
+    signal for "is this actually a window" independent of exactly how uniform its
+    color is.
 
     When *mask* and *img_width* are provided the fill ratio is computed by counting
     every mask pixel that falls within the raw bounding box, which is more accurate
     than relying solely on the connected-component pixel count.
 
-    When *pixels*, *img_width*, and *key_color* are provided, an additional strict
-    uniformity check rejects boxes whose interior is not mostly the exact key color.
+    When *pixels*, *img_width*, and *key_color* are provided and
+    *require_strict_uniformity* is True (the default), an additional strict
+    uniformity check rejects boxes whose interior is not mostly the *exact* key
+    color - this is the higher bar for treating a window as good enough to be an
+    interactive gameplay element, not for deciding whether to mask it at all.
+    Pass False to skip this and keep only the shape check, e.g. for deciding what
+    to mask out of the background: a window that's clearly real but imperfectly
+    colored should still never show its raw chroma-key fill in the final image.
     """
     result = []
     for win in windows:
@@ -521,7 +578,12 @@ def _to_scoring_windows(
             fill_ratio = pixel_area / box_area
         if fill_ratio < SCORE_MIN_FILL_RATIO:
             continue
-        if pixels is not None and img_width is not None and key_color is not None:
+        if (
+            require_strict_uniformity
+            and pixels is not None
+            and img_width is not None
+            and key_color is not None
+        ):
             strict_count, strict_area = _count_strict_color_matches_in_box(
                 pixels,
                 img_width,
@@ -697,17 +759,25 @@ async def outline_windows_from_image(
                 scoring_windows = candidate_scoring
                 best_score = candidate_score
 
-    # Only validated windows (passed the strict fill-ratio/uniformity check in
-    # scoring_windows) should ever reach gameplay or get masked out of the
-    # background. Rebuild the mask from scratch here instead of reusing the
-    # loose per-pixel chroma match: that match covers every pixel anywhere in
-    # the scene that merely resembles the key color (sky haze, shadows, stray
-    # highlights), which previously caused random background patches to get
-    # blacked out and false-positive "windows" to appear in the sky.
+    # Two different bars matter from here on, using two different signals:
+    # - accepted_windows (passed fill-ratio AND strict color-uniformity, in
+    #   scoring_windows): well-formed AND precisely colored enough to trust
+    #   as an interactive gameplay window.
+    # - maskable_windows (passed fill-ratio only - a shape check that a real,
+    #   roughly-rectangular window passes even with imperfect internal
+    #   shading/gradient, but an irregular stray patch like sky haze or a
+    #   shadow does not): everything that's clearly a real window, even if
+    #   not precisely-colored enough to be interactive. Every one of these
+    #   still needs to be masked out, or a window that narrowly missed
+    #   strict validation is left showing its raw, unprocessed chroma-key
+    #   fill in the final background instead of blending in.
     accepted_windows = _accepted_padded_windows(windows, scoring_windows)
+    shape_passed_windows = _to_scoring_windows(windows, mask, width, require_strict_uniformity=False)
+    maskable_windows = _accepted_padded_windows(windows, shape_passed_windows)
 
     cleanup_mask = bytearray(width * height)
-    _fill_mask_rectangles(cleanup_mask, width, accepted_windows)
+    _fill_mask_rectangles(cleanup_mask, width, maskable_windows)
+    _extend_mask_to_nearby_matches(cleanup_mask, mask, width, height, maskable_windows)
     _dilate_mask(cleanup_mask, width, height, radius=RENDER_MASK_DILATION_RADIUS)
 
     processed_pixels: list[tuple[int, int, int, int]] = []

@@ -1,9 +1,14 @@
-"""Regression test for strict vs. loose window detection.
+"""Regression test for shape-based vs. loose window detection.
 
-Reproduces the real bug: a color-drifted patch that loosely resembles the key
-color (within the broad per-pixel match tolerance) but isn't a real window
-must never be returned as a window or masked out of the background - only
-regions that also pass the strict fill-ratio/uniformity check should.
+Reproduces the real bug: an irregular stray patch that loosely resembles the
+key color (within the broad per-pixel match tolerance) but isn't a real
+window - e.g. sky haze or a shadow, which are irregular/organic rather than
+rectangular - must never be returned as a window or masked out of the
+background. A real window is still fundamentally rectangular even when
+imperfectly colored, which is what the fill-ratio (shape) check distinguishes;
+color uniformity is a separate, stricter bar reserved for deciding what's
+interactive (see test_candidate_scoring... below and window_outline.py's
+docstrings for _to_scoring_windows).
 """
 
 import asyncio
@@ -16,18 +21,26 @@ from backend.ai.window_outline import WINDOW_DARK_FILL, outline_windows_from_ima
 
 SCENE_COLOR = (40, 60, 90)
 KEY_COLOR = (167, 239, 70)
-# Within the broad per-pixel match tolerance (30/channel) so it's still
-# detected as a candidate region, but outside the strict scoring tolerance
-# (10/channel) so it must fail validation - analogous to sky haze or a
-# shadow that happens to drift into the key color's broad match band.
+# Within the broad per-pixel match tolerance (30/channel), same family as
+# KEY_COLOR - the point of this patch is that it's irregularly shaped, not
+# that its color is off.
 DRIFTED_COLOR = (147, 219, 90)
 
 REAL_WINDOW_BOX = (50, 50, 90, 80)  # x0, y0, x1, y1
-STRAY_PATCH_BOX = (120, 20, 150, 45)
+# A diagonal stripe within this bounding box, not a filled rectangle: its
+# matched pixels only sparsely fill their own bounding box (low fill-ratio),
+# same as real irregular scene content like sky haze or a shadow would.
+STRAY_PATCH_BOX = (110, 15, 190, 95)
+STRAY_PATCH_BAND_HALF_WIDTH = 4
+# A solid rectangle (passes the shape/fill-ratio check, same as a real
+# window) filled with DRIFTED_COLOR instead of the exact key color - fails
+# only the strict color-uniformity check. Represents a real window Gemini
+# rendered with some gradient/shading rather than a perfectly flat fill.
+IMPRECISE_WINDOW_BOX = (50, 120, 90, 150)
 
 
 def _build_test_image_data_uri() -> str:
-    image = Image.new("RGB", (200, 150), SCENE_COLOR)
+    image = Image.new("RGB", (220, 170), SCENE_COLOR)
     pixels = image.load()
     width, height = image.size
 
@@ -53,7 +66,13 @@ def _build_test_image_data_uri() -> str:
         for x in range(x0, x1):
             pixels[x, y] = KEY_COLOR
 
-    x0, y0, x1, y1 = STRAY_PATCH_BOX
+    sx0, sy0, sx1, sy1 = STRAY_PATCH_BOX
+    for y in range(sy0, sy1):
+        for x in range(sx0, sx1):
+            if abs((x - sx0) - (y - sy0)) <= STRAY_PATCH_BAND_HALF_WIDTH:
+                pixels[x, y] = DRIFTED_COLOR
+
+    x0, y0, x1, y1 = IMPRECISE_WINDOW_BOX
     for y in range(y0, y1):
         for x in range(x0, x1):
             pixels[x, y] = DRIFTED_COLOR
@@ -97,6 +116,30 @@ def test_stray_color_drifted_patch_is_not_treated_as_a_window() -> None:
     real_center = ((real_x0 + real_x1) // 2, (real_y0 + real_y1) // 2)
     assert _decode_pixel(processed_url, *real_center) == WINDOW_DARK_FILL
     assert _decode_pixel(processed_url, *stray_center)[:3] == DRIFTED_COLOR
+
+
+def test_window_that_fails_strict_color_check_is_masked_but_not_returned() -> None:
+    """Regression test: a real, rectangular window that Gemini rendered with
+    some gradient/shading (failing only the strict color-uniformity check,
+    not the shape check) must still be masked out of the background - it
+    just shouldn't be returned as an interactive gameplay window. Previously
+    the code used the same strict-only window set for both, so a window like
+    this was left showing its raw, unprocessed chroma-key fill instead of
+    blending into the background."""
+    data_uri = _build_test_image_data_uri()
+
+    result = asyncio.run(outline_windows_from_image(data_uri, key_color="#A7EF46", allow_key_fallback=False))
+
+    ix0, iy0, ix1, iy1 = IMPRECISE_WINDOW_BOX
+    imprecise_center = ((ix0 + ix1) // 2, (iy0 + iy1) // 2)
+
+    for win in result["windows"]:
+        assert not (
+            win["x"] <= imprecise_center[0] <= win["x"] + win["width"]
+            and win["y"] <= imprecise_center[1] <= win["y"] + win["height"]
+        )
+
+    assert _decode_pixel(result["processed_background_url"], *imprecise_center) == WINDOW_DARK_FILL
 
 
 BORDER_COLOR = (167, 239, 70)  # lime - matches the real pipeline's default key color
