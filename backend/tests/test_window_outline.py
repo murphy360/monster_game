@@ -381,3 +381,72 @@ def test_real_arched_window_with_natural_corner_loss_is_still_interactive() -> N
     assert win["y"] <= y0
     assert win["x"] + win["width"] >= x1
     assert win["y"] + win["height"] >= y1
+
+
+PILLARBOX_KEY_COLOR = (167, 239, 70)
+PILLARBOX_WINDOW_BOXES = [
+    (500, 220, 540, 270),
+    (600, 220, 640, 270),
+    (700, 220, 740, 270),
+    (500, 420, 540, 470),
+    (600, 420, 640, 470),
+    (700, 420, 740, 470),
+]
+
+
+def _build_pillarboxed_image_data_uri(pillarbox_fraction: float) -> str:
+    """A background with a correct top/bottom key-color border but a full
+    -height solid black pillarbox on left/right - the composition-drift
+    failure mode Gemini can produce: it paints the requested thin border on
+    top/bottom but replaces the entire left/right edge with solid black
+    instead of the requested thin border+outline (see window_outline.py's
+    _estimate_boundary_color docstring)."""
+    width, height = 1280, 720
+    image = Image.new("RGB", (width, height), SCENE_COLOR)
+    pixels = image.load()
+
+    border = 13
+    for y in range(border):
+        for x in range(width):
+            pixels[x, y] = PILLARBOX_KEY_COLOR
+            pixels[x, height - 1 - y] = PILLARBOX_KEY_COLOR
+    for y in range(border, border + 2):
+        for x in range(width):
+            pixels[x, y] = (0, 0, 0)
+            pixels[x, height - 1 - y] = (0, 0, 0)
+
+    black_width = int(width * pillarbox_fraction)
+    for x in range(black_width):
+        for y in range(height):
+            pixels[x, y] = (0, 0, 0)
+            pixels[width - 1 - x, y] = (0, 0, 0)
+
+    for x0, y0, x1, y1 in PILLARBOX_WINDOW_BOXES:
+        for y in range(y0 - 2, y1 + 2):
+            for x in range(x0 - 2, x1 + 2):
+                pixels[x, y] = (0, 0, 0)
+        for y in range(y0, y1):
+            for x in range(x0, x1):
+                pixels[x, y] = PILLARBOX_KEY_COLOR
+
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    b64 = base64.b64encode(buffer.getvalue()).decode()
+    return "data:image/png;base64," + b64
+
+
+def test_pillarboxed_background_still_resolves_the_true_border_color() -> None:
+    """Regression test: when Gemini paints a correct thin key-color border on
+    top/bottom but a full-height solid black pillarbox on left/right instead
+    of the requested thin border+outline, boundary detection must not let the
+    corrupted left/right axis's sample volume (or its corner overlap) drag
+    the resolved color to black - that previously left the real pipeline
+    (which trusts boundary detection by default) finding zero windows on an
+    otherwise-good background."""
+    data_uri = _build_pillarboxed_image_data_uri(pillarbox_fraction=0.35)
+
+    result = asyncio.run(outline_windows_from_image(data_uri, key_color="#A7EF46"))
+
+    assert result["boundary_color"] != "#000000"
+    assert result["window_key_color"] == "#A7EF46"
+    assert len(result["windows"]) == len(PILLARBOX_WINDOW_BOXES)

@@ -53,6 +53,17 @@ BOUNDARY_COLOR_TOLERANCE = 28
 BOUNDARY_LINE_MATCH_RATIO = 0.93
 BOUNDARY_MIN_CROP_PIXELS = 3
 BOUNDARY_MAX_CROP_RATIO = 0.18
+# Gemini can drift the whole composition rather than just the key color - e.g.
+# painting a solid black pillarbox down the full height of the left/right
+# edges while the top/bottom border comes out fine. When that happens, the
+# corrupted axis's own sample volume can outvote (and its corner overlap can
+# pollute) the still-good axis if we pool every edge into one shared color
+# vote, so this fraction confines both candidate extraction and validation to
+# the middle slice of each edge line - far enough from the corners that a
+# wide, one-axis corruption can't bleed into the other axis's read.
+BOUNDARY_CENTER_SAMPLE_FRACTION = 0.2
+BOUNDARY_EDGE_MATCH_RATIO_MIN = 0.6
+BOUNDARY_NEAR_BLACK_THRESHOLD = 40
 
 
 def _parse_key_color(key_color: str | tuple[int, int, int] | list[int] | None) -> tuple[int, int, int]:
@@ -183,19 +194,13 @@ def _count_strict_color_matches_in_box(
     return matches, sample_area
 
 
-def _estimate_boundary_color(image: Image.Image) -> tuple[int, int, int] | None:
-    """Estimate dominant color in the outer border area, if one exists."""
-    width, height = image.size
-    if width < 8 or height < 8:
+def _dominant_bucket_color(samples: list[tuple[int, int, int]]) -> tuple[int, int, int] | None:
+    """Return the average color of the most common coarse-quantized color bucket."""
+    if not samples:
         return None
 
-    sample_band = max(1, min(BOUNDARY_SAMPLE_BAND, width // 6, height // 6))
-    pixels = image.load()
-
     buckets: dict[tuple[int, int, int], list[tuple[int, int, int]]] = {}
-
-    def _add_sample(x: int, y: int) -> None:
-        r, g, b, _ = pixels[x, y]
+    for r, g, b in samples:
         key = (
             r // BOUNDARY_COLOR_BUCKET_SIZE,
             g // BOUNDARY_COLOR_BUCKET_SIZE,
@@ -203,52 +208,92 @@ def _estimate_boundary_color(image: Image.Image) -> tuple[int, int, int] | None:
         )
         buckets.setdefault(key, []).append((r, g, b))
 
-    for y in range(sample_band):
-        for x in range(width):
-            _add_sample(x, y)
-            _add_sample(x, height - 1 - y)
-    for x in range(sample_band):
-        for y in range(height):
-            _add_sample(x, y)
-            _add_sample(width - 1 - x, y)
-
-    if not buckets:
-        return None
-
-    dominant_bucket = max(buckets.items(), key=lambda entry: len(entry[1]))[1]
-    if not dominant_bucket:
-        return None
-
+    dominant_bucket = max(buckets.values(), key=len)
     count = len(dominant_bucket)
     avg_r = sum(pixel[0] for pixel in dominant_bucket) // count
     avg_g = sum(pixel[1] for pixel in dominant_bucket) // count
     avg_b = sum(pixel[2] for pixel in dominant_bucket) // count
-    candidate = (avg_r, avg_g, avg_b)
+    return (avg_r, avg_g, avg_b)
 
-    def _edge_match_ratio(edge: str) -> float:
-        total = 0
+
+def _is_near_black(rgb: tuple[int, int, int], threshold: int = BOUNDARY_NEAR_BLACK_THRESHOLD) -> bool:
+    """Return True when a color is dark enough to plausibly be the 2px outline, not a border."""
+    return all(channel <= threshold for channel in rgb)
+
+
+def _estimate_boundary_color(image: Image.Image) -> tuple[int, int, int] | None:
+    """Estimate the dominant border color from the outer edge area, if one exists.
+
+    The top/bottom and left/right edges are read as two independent axes
+    rather than pooled into one shared color vote. A composition-drift
+    failure (e.g. Gemini painting a full-height black pillarbox down the
+    left/right edges while the top/bottom border renders correctly) would
+    otherwise let one corrupted axis's sample volume outvote, or its corner
+    overlap contaminate, the other axis's still-good read. Both candidate
+    extraction and validation are further confined to the middle slice of
+    each edge line, so a wide corruption on one axis can't bleed into the
+    other axis's corners either. When both axes produce a usable candidate
+    but disagree, the non-black one wins: the border/key color is never
+    intentionally black by design (black is reserved for the 2px outline).
+    """
+    width, height = image.size
+    if width < 8 or height < 8:
+        return None
+
+    sample_band = max(1, min(BOUNDARY_SAMPLE_BAND, width // 6, height // 6))
+    pixels = image.load()
+
+    h_margin = int(width * (1 - BOUNDARY_CENTER_SAMPLE_FRACTION) / 2)
+    h_lo, h_hi = h_margin, max(h_margin + 1, width - h_margin)
+    v_margin = int(height * (1 - BOUNDARY_CENTER_SAMPLE_FRACTION) / 2)
+    v_lo, v_hi = v_margin, max(v_margin + 1, height - v_margin)
+
+    horizontal_samples: list[tuple[int, int, int]] = []
+    for y in range(sample_band):
+        for x in range(h_lo, h_hi):
+            horizontal_samples.append(pixels[x, y][:3])
+            horizontal_samples.append(pixels[x, height - 1 - y][:3])
+
+    vertical_samples: list[tuple[int, int, int]] = []
+    for x in range(sample_band):
+        for y in range(v_lo, v_hi):
+            vertical_samples.append(pixels[x, y][:3])
+            vertical_samples.append(pixels[width - 1 - x, y][:3])
+
+    def _horizontal_match_ratio(candidate: tuple[int, int, int]) -> float:
         matched = 0
-        if edge in ("top", "bottom"):
-            y = 0 if edge == "top" else height - 1
-            for x in range(width):
+        total = 0
+        for y in (0, height - 1):
+            for x in range(h_lo, h_hi):
                 total += 1
-                r, g, b, _ = pixels[x, y]
-                if _is_color_match((r, g, b), candidate):
-                    matched += 1
-        else:
-            x = 0 if edge == "left" else width - 1
-            for y in range(height):
-                total += 1
-                r, g, b, _ = pixels[x, y]
-                if _is_color_match((r, g, b), candidate):
+                if _is_color_match(pixels[x, y][:3], candidate):
                     matched += 1
         return matched / max(1, total)
 
-    ratios = [_edge_match_ratio(edge) for edge in ("top", "right", "bottom", "left")]
-    if min(ratios) < 0.6:
+    def _vertical_match_ratio(candidate: tuple[int, int, int]) -> float:
+        matched = 0
+        total = 0
+        for x in (0, width - 1):
+            for y in range(v_lo, v_hi):
+                total += 1
+                if _is_color_match(pixels[x, y][:3], candidate):
+                    matched += 1
+        return matched / max(1, total)
+
+    horizontal_candidate = _dominant_bucket_color(horizontal_samples)
+    vertical_candidate = _dominant_bucket_color(vertical_samples)
+
+    candidates: list[tuple[int, int, int]] = []
+    if horizontal_candidate is not None and _horizontal_match_ratio(horizontal_candidate) >= BOUNDARY_EDGE_MATCH_RATIO_MIN:
+        candidates.append(horizontal_candidate)
+    if vertical_candidate is not None and _vertical_match_ratio(vertical_candidate) >= BOUNDARY_EDGE_MATCH_RATIO_MIN:
+        candidates.append(vertical_candidate)
+
+    if not candidates:
         return None
 
-    return candidate
+    non_black_candidates = [candidate for candidate in candidates if not _is_near_black(candidate)]
+    return non_black_candidates[0] if non_black_candidates else candidates[0]
 
 
 def _measure_boundary_thickness(
