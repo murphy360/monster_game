@@ -10,7 +10,7 @@ function readReviewDraft() {
     const rawDraft = localStorage.getItem(REVIEW_DRAFT_KEY);
     const draft = rawDraft ? JSON.parse(rawDraft) : null;
     return draft && typeof draft === 'object' ? draft : null;
-  } catch (_) {
+  } catch {
     return null;
   }
 }

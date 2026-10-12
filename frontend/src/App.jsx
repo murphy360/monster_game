@@ -71,7 +71,7 @@ export default function App() {
           ...patch,
         };
         localStorage.setItem(REVIEW_DRAFT_KEY, JSON.stringify(next));
-      } catch (_) {
+      } catch {
         // Non-blocking: review draft persistence should never break generation.
       }
     },
@@ -382,7 +382,7 @@ export default function App() {
                     : data.windows,
             };
           }
-        } catch (_) {
+        } catch {
           // Non-blocking: continue with whatever the saved payload contains.
         }
       }
