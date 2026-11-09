@@ -4,4 +4,4 @@ python-dotenv>=1.2.4
 google-genai>=2.34.0
 httpx>=0.28.1
 Pillow>=13.0.0
-python-multipart>=0.0.32
+python-multipart>=0.0.33
