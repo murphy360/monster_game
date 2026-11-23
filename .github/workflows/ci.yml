@@ -122,3 +122,18 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+  # The one job the main ruleset requires (murphy360/standards templates/rulesets/main.json): whichever job above
+  # failed or was cancelled, this fixed name is what branch protection points at. A skipped job counts as passed.
+  result:
+    name: result
+    if: always()
+    needs: [backend, frontend, docker]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every job that ran passed
+        run: |
+          echo '${{ toJSON(needs) }}' > needs.json
+          cat needs.json
+          jq -e 'all(.[]; .result == "success" or .result == "skipped")' needs.json
